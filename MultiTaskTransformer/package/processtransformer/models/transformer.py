@@ -1,5 +1,5 @@
-from tensorflow.keras import layers, Model
 import tensorflow as tf
+from tensorflow.keras import layers, Model
 import numpy as np
 
 class TransformerBlock(layers.Layer):
