@@ -1,3 +1,4 @@
+import os
 import json
 import numpy as np
 import pandas as pd
@@ -8,7 +9,7 @@ from typing import Dict, Tuple, Optional
 from ..constants import Task
 
 class LogsDataLoader:
-    def __init__(self, name: str, dir_path: str = "./datasets"):
+    def __init__(self, name: str, preprocessing_id, dir_path: str = "./datasets"):
         """Provides support for reading and pre-processing examples from processed logs.
 
         Args:
@@ -18,6 +19,7 @@ class LogsDataLoader:
         self._dir_path = f"{dir_path}/{name}/processed"
         self.label_encoders = {}
         self.scalers = {}
+        self._preprocessing_id = preprocessing_id
 
     def _tokenize_and_pad(self, sequences, word_dict, max_length):
         tokenized = [[word_dict.get(word, 0) for word in seq.split()] for seq in sequences]
@@ -106,8 +108,10 @@ class LogsDataLoader:
         if task not in (Task.NEXT_ACTIVITY, Task.NEXT_TIME, Task.REMAINING_TIME):
             raise ValueError("Invalid task.")
         
-        train_df = pd.read_csv(f"{self._dir_path}/{task.value}_train.csv")
-        test_df = pd.read_csv(f"{self._dir_path}/{task.value}_test.csv")
+        train_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))
+        test_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
+        # train_df = pd.read_csv(f"{self._dir_path}/{task.value}_train.csv")
+        # test_df = pd.read_csv(f"{self._dir_path}/{task.value}_test.csv")
         
         with open(f"{self._dir_path}/metadata.json", "r") as json_file:
             metadata = json.load(json_file)

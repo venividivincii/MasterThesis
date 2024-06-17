@@ -9,8 +9,9 @@ import pm4py
 from ..constants import Task
 
 class LogsDataProcessor:
-    def __init__(self, name: str, filepath: str, columns: List[str], additional_columns: Optional[List[str]] = None, 
-                 datetime_format: str = "%Y-%m-%d %H:%M:%S.%f", pool: int = 1):
+    def __init__(self, name: str, filepath: str, preprocessing_id: str, columns: List[str],
+                 additional_columns: Optional[List[str]] = None, datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
+                 pool: int = 1):
         """Provides support for processing raw logs.
 
         Args:
@@ -31,6 +32,7 @@ class LogsDataProcessor:
         # Create directory for saving processed datasets
         self._dir_path = os.path.join('datasets', self._name, "processed")
         os.makedirs(self._dir_path, exist_ok=True)
+        self._preprocessing_id = preprocessing_id
 
     def _load_df(self, sort_temporally: bool = False) -> pd.DataFrame:
         """Loads and preprocesses the raw log data.
@@ -137,8 +139,8 @@ class LogsDataProcessor:
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
         test_df = processed_df[processed_df["case_id"].isin(test_list)]
         
-        train_df.to_csv(os.path.join(self._dir_path, f"{Task.NEXT_ACTIVITY.value}_train.csv"), index=False)
-        test_df.to_csv(os.path.join(self._dir_path, f"{Task.NEXT_ACTIVITY.value}_test.csv"), index=False)
+        train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"), index=False)
+        test_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"), index=False)
 
     def process_logs(self, task: Task, sort_temporally: bool = False, train_test_ratio: float = 0.80) -> None:
         """Processes logs for a given task.
@@ -151,8 +153,8 @@ class LogsDataProcessor:
         task_string = task.value
         
         # Check if preprocessed csv files already exist for the given task
-        if (os.path.isfile(os.path.join(self._dir_path, f"{task_string}_test.csv"))
-            and os.path.isfile(os.path.join(self._dir_path, f"{task_string}_train.csv"))):
+        if (os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
+            and os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))):
             
             print(f"Preprocessed train-test split for task {task_string} found. Preprocessing skipped.")
         else:
