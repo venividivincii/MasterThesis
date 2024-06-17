@@ -63,7 +63,6 @@ class LogsDataLoader:
                                    y_word_dict: Dict[str, int], max_case_length: int, 
                                    full_df: Optional[pd.DataFrame] = None,
                                    shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], int, int]:
-        print("Preparing data for task next_activity...")
         
         x = df["prefix"].values
         y = df["next_act"].values
