@@ -66,25 +66,46 @@ class LogsDataProcessor:
         print(df.head())
         return df
     
+    
+    # code columns into dicts of unique classes
     def _extract_logs_metadata(self, df: pd.DataFrame) -> None:
         """Extracts and saves metadata from the dataframe.
 
         Args:
             df (pd.DataFrame): Input dataframe.
         """
-        keys = ["[PAD]", "[UNK]"]
-        activities = list(df[self._target_column].unique())
-        keys.extend(activities)
-        val = range(len(keys))
-
-        coded_activity = {"x_word_dict": dict(zip(keys, val))}
-        code_activity_normal = {"y_word_dict": dict(zip(activities, range(len(activities))))}
-
-        coded_activity.update(code_activity_normal)
-        coded_json = json.dumps(coded_activity)
+        special_tokens = ["[PAD]", "[UNK]"]
+        activities = list(df["concept:name"].unique())
+        columns = ["concept:name"] + self._additional_columns
+        
+        # inialize the dict for the coded columns
+        coded_columns = {}
+        
+        # iterate over all columns, that need to be coded
+        for column in columns:
+            # unique classes of column data
+            classes = list(df[column].unique())
+            # concat special tokens with unique classes
+            keys = special_tokens + classes
+            # ensure each element in the keys list gets a unique integer value
+            val = range(len(keys))
+            # mapping for special tokens and unique classes
+            coded_activity = {f"{column}##x_word_dict": dict(zip(keys, val))}
+            # mapping only for unique classes
+            code_activity_normal = {f"{column}##y_word_dict": dict(zip(activities, range(len(activities))))}
+            # append y_word_dict to x_word_dict
+            coded_activity.update(code_activity_normal)
+            # create new dict for coded column
+            coded_column = {column: coded_activity}
+            # update coded columns dict with coded_column
+            coded_columns.update(coded_column)
+            
+        # convert into json string
+        coded_json = json.dumps(coded_columns)
         
         with open(os.path.join(self._dir_path, f"{self._preprocessing_id}_metadata.json"), "w") as metadata_file:
             metadata_file.write(coded_json)
+    
     
     def _compute_num_classes(self, df: pd.DataFrame) -> List[int]:
         """Computes the number of unique classes in each categorical column.
