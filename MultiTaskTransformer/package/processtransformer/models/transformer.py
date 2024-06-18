@@ -71,17 +71,16 @@ class TokenAndPositionEmbedding(layers.Layer):
         x = self.token_emb(x)
         return x + positions  # Combine token and position embeddings
 
-def get_next_activity_model(max_case_length, vocab_size, output_dim,
-                            num_categorical_features, num_numerical_features,
-                            num_classes_list,  # List of num_classes for multiple categorical columns
-                            embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+def get_next_categorical_model(max_case_length, vocab_size, output_dim,
+                               num_categorical_features, num_numerical_features,
+                               num_classes_list, embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
     """
-    Constructs the next activity prediction model using a transformer architecture.
+    Constructs the next categorical prediction model using a transformer architecture.
     
     Args:
         max_case_length (int): Maximum length of the sequences (cases).
         vocab_size (int): Size of the vocabulary.
-        output_dim (int): Number of output classes for the next activity prediction.
+        output_dim (int): Number of output classes for the next categorical prediction.
         num_categorical_features (int): Number of additional categorical features.
         num_numerical_features (int): Number of additional numerical features.
         num_classes_list (list): List containing the number of unique classes for each categorical feature.
@@ -91,9 +90,9 @@ def get_next_activity_model(max_case_length, vocab_size, output_dim,
         num_layers (int): Number of transformer blocks. Defaults to 1.
     
     Returns:
-        tf.keras.Model: Compiled transformer model for next activity prediction.
+        tf.keras.Model: Compiled transformer model for next categorical prediction.
     """
-    print("Creating model for task next_activity...")
+    print("Creating model for task next_categorical...")
     
     # Ensure num_classes_list is a list and has the correct length
     if not isinstance(num_classes_list, list) or len(num_classes_list) != num_categorical_features:
@@ -155,9 +154,9 @@ def get_next_activity_model(max_case_length, vocab_size, output_dim,
     
     # Model definition
     if additional_inputs is not None:
-        transformer = Model(inputs=[inputs, additional_inputs], outputs=outputs, name="next_activity_transformer")
+        transformer = Model(inputs=[inputs, additional_inputs], outputs=outputs, name="next_categorical_transformer")
     else:
-        transformer = Model(inputs=[inputs], outputs=outputs, name="next_activity_transformer")
+        transformer = Model(inputs=[inputs], outputs=outputs, name="next_categorical_transformer")
     
     return transformer
 

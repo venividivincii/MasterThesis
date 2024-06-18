@@ -61,13 +61,13 @@ class LogsDataLoader:
 
         return combined_features, num_categorical, num_numerical
 
-    def prepare_data_next_activity(self, df: pd.DataFrame, x_word_dict: Dict[str, int], 
-                                   y_word_dict: Dict[str, int], max_case_length: int, 
-                                   full_df: Optional[pd.DataFrame] = None,
-                                   shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], int, int]:
+    def prepare_data_next_categorical(self, df: pd.DataFrame, x_word_dict: Dict[str, int], 
+                                      y_word_dict: Dict[str, int], max_case_length: int, 
+                                      full_df: Optional[pd.DataFrame] = None,
+                                      shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], int, int]:
         
         x = df["prefix"].values
-        y = df["next_act"].values
+        y = df["next_cat"].values
         
         if df.shape[1] > 4:
             additional_features, num_categorical, num_numerical = self._process_additional_features(df.iloc[:, 4:], fit=(full_df is not None))
@@ -105,15 +105,13 @@ class LogsDataLoader:
             Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], Dict[str, int], int, int, int]: Loaded data and metadata.
         """
         print("Loading data from preprocessed train-test split...")
-        if task not in (Task.NEXT_ACTIVITY, Task.NEXT_TIME, Task.REMAINING_TIME):
+        if task not in (Task.NEXT_CATEGORICAL, Task.NEXT_TIME, Task.REMAINING_TIME):
             raise ValueError("Invalid task.")
         
         train_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))
         test_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
-        # train_df = pd.read_csv(f"{self._dir_path}/{task.value}_train.csv")
-        # test_df = pd.read_csv(f"{self._dir_path}/{task.value}_test.csv")
         
-        with open(f"{self._dir_path}/metadata.json", "r") as json_file:
+        with open(os.path.join(self._dir_path, f"{self._preprocessing_id}_metadata.json"), "r") as json_file:
             metadata = json.load(json_file)
         
         x_word_dict = metadata["x_word_dict"]

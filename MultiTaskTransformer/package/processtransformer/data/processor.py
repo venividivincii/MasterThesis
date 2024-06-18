@@ -2,7 +2,6 @@ import os
 import json
 import pandas as pd
 import numpy as np
-import datetime
 from multiprocessing import Pool
 from typing import List, Optional
 import pm4py
@@ -11,7 +10,7 @@ from ..constants import Task
 class LogsDataProcessor:
     def __init__(self, name: str, filepath: str, preprocessing_id: str, columns: List[str],
                  additional_columns: Optional[List[str]] = None, datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
-                 pool: int = 1):
+                 pool: int = 1, target_column: str = "concept:name"):
         """Provides support for processing raw logs.
 
         Args:
@@ -21,6 +20,7 @@ class LogsDataProcessor:
             additional_columns (Optional[List[str]]): List of additional column names.
             datetime_format (str): Format of datetime strings.
             pool (int): Number of CPUs (processes) to be used for data processing.
+            target_column (str): The target categorical column to predict.
         """
         self._name = name
         self._filepath = filepath
@@ -28,7 +28,8 @@ class LogsDataProcessor:
         self._additional_columns = additional_columns if additional_columns else []
         self._datetime_format = datetime_format
         self._pool = pool
-        
+        self._target_column = target_column
+
         # Create directory for saving processed datasets
         self._dir_path = os.path.join('datasets', self._name, "processed")
         os.makedirs(self._dir_path, exist_ok=True)
@@ -72,7 +73,7 @@ class LogsDataProcessor:
             df (pd.DataFrame): Input dataframe.
         """
         keys = ["[PAD]", "[UNK]"]
-        activities = list(df["concept:name"].unique())
+        activities = list(df[self._target_column].unique())
         keys.extend(activities)
         val = range(len(keys))
 
@@ -82,7 +83,7 @@ class LogsDataProcessor:
         coded_activity.update(code_activity_normal)
         coded_json = json.dumps(coded_activity)
         
-        with open(os.path.join(self._dir_path, "metadata.json"), "w") as metadata_file:
+        with open(os.path.join(self._dir_path, f"{self._preprocessing_id}_metadata.json"), "w") as metadata_file:
             metadata_file.write(coded_json)
     
     def _compute_num_classes(self, df: pd.DataFrame) -> List[int]:
@@ -96,8 +97,8 @@ class LogsDataProcessor:
         """
         return [df[col].nunique() for col in self._additional_columns]
 
-    def _next_activity_helper_func(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Helper function to process next activity data.
+    def _next_categorical_helper_func(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Helper function to process next categorical data.
 
         Args:
             df (pd.DataFrame): Input dataframe.
@@ -105,26 +106,26 @@ class LogsDataProcessor:
         Returns:
             pd.DataFrame: Processed dataframe.
         """
-        case_id, case_name = "case:concept:name", "concept:name"
-        processed_columns = ["case_id", "prefix", "k", "next_act"] + self._additional_columns
+        case_id, case_name = "case:concept:name", self._target_column
+        processed_columns = ["case_id", "prefix", "k", "next_cat"] + self._additional_columns
         processed_df = pd.DataFrame(columns=processed_columns)
         idx = 0
         unique_cases = df[case_id].unique()
         
         for case in unique_cases:
             case_df = df[df[case_id] == case]
-            act = case_df[case_name].to_list()
-            for i in range(len(act) - 1):
-                prefix = act[0] if i == 0 else " ".join(act[:i + 1])
-                next_act = act[i + 1]
-                row = [case, prefix, i, next_act] + case_df.iloc[i][self._additional_columns].tolist()
+            cat = case_df[case_name].to_list()
+            for i in range(len(cat) - 1):
+                prefix = cat[0] if i == 0 else " ".join(cat[:i + 1])
+                next_cat = cat[i + 1]
+                row = [case, prefix, i, next_cat] + case_df.iloc[i][self._additional_columns].tolist()
                 processed_df.loc[idx] = row
                 idx += 1
         
         return processed_df
 
-    def _process_next_activity(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]) -> None:
-        """Processes data for the next activity task.
+    def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]) -> None:
+        """Processes data for the next categorical task.
 
         Args:
             df (pd.DataFrame): Input dataframe.
@@ -134,7 +135,7 @@ class LogsDataProcessor:
         df_split = np.array_split(df, self._pool)
         
         with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._next_activity_helper_func, df_split))
+            processed_df = pd.concat(pool.imap_unordered(self._next_categorical_helper_func, df_split))
         
         train_df = processed_df[processed_df["case_id"].isin(train_list)]
         test_df = processed_df[processed_df["case_id"].isin(test_list)]
@@ -166,8 +167,8 @@ class LogsDataProcessor:
             train_list = df["case:concept:name"].unique()[:train_test_split_point]
             test_list = df["case:concept:name"].unique()[train_test_split_point:]
             
-            if task == Task.NEXT_ACTIVITY:
-                self._process_next_activity(df, train_list, test_list)
+            if task == Task.NEXT_CATEGORICAL:
+                self._process_next_categorical(df, train_list, test_list)
             elif task == Task.NEXT_TIME:
                 self._process_next_time(df, train_list, test_list)
             elif task == Task.REMAINING_TIME:

@@ -1,4 +1,4 @@
-case_id,prefix,k,next_act,Resource
+case_id,prefix,k,next_cat,Resource
 Case 3665,assign-seriousness,0,take-in-charge-ticket,Value 9
 Case 3665,assign-seriousness take-in-charge-ticket,1,wait,Value 6
 Case 3665,assign-seriousness take-in-charge-ticket wait,2,resolve-ticket,Value 12
