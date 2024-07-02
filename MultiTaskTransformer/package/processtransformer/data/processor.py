@@ -1,4 +1,5 @@
 import os
+from tqdm import tqdm
 import json
 import pandas as pd
 import numpy as np
@@ -59,6 +60,20 @@ class LogsDataProcessor:
         df["concept:name"] = df["concept:name"].str.lower().str.replace(" ", "-")
         df["time:timestamp"] = pd.to_datetime(df["time:timestamp"].str.replace("/", "-"), format=self._datetime_format)
         
+        for idx, org_column in enumerate(self._org_columns):
+            # set target_column to new naming convention, if in org_columns
+            if org_column == self._target_column:
+                self._target_column = df.columns[idx]
+            # When additional_column is in org columns, set additional_column to org_column name
+            for additional_column in self._additional_columns:
+                if additional_column == org_column:
+                    self._additional_columns[additional_column] = df.columns[idx]
+                    
+        print(f"Additional Columns: {self._additional_columns}")
+        print(f"org_columns: {self._org_columns}")
+        print(f"df columns: {df.columns}")
+        print(f"target_column: {self._target_column}")
+        
         if sort_temporally:
             df.sort_values(by=["time:timestamp"], inplace=True)
         print("Parsing successful.")
@@ -78,11 +93,13 @@ class LogsDataProcessor:
         activities = list(df["concept:name"].unique())
         columns = ["concept:name"] + self._additional_columns
         
+        print("Coding Log Meta-Data...")
+        
         # inialize the dict for the coded columns
         coded_columns = {}
         
         # iterate over all columns, that need to be coded
-        for column in columns:
+        for column in tqdm(columns):
             # unique classes of column data
             classes = list(df[column].unique())
             # concat special tokens with unique classes
