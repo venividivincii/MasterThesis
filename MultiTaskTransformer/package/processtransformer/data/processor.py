@@ -135,8 +135,37 @@ class LogsDataProcessor:
         """
         return [df[col].nunique() for col in self._additional_columns]
 
+    # def _next_categorical_helper_func(self, df: pd.DataFrame) -> pd.DataFrame:
+    #     """Helper function to process next categorical data.
+
+    #     Args:
+    #         df (pd.DataFrame): Input dataframe.
+
+    #     Returns:
+    #         pd.DataFrame: Processed dataframe.
+    #     """
+    #     case_id, case_name = "case:concept:name", self._target_column
+    #     processed_columns = ["case_id", "prefix", "k", "next_cat"] + self._additional_columns
+    #     processed_df = pd.DataFrame(columns=processed_columns)
+    #     idx = 0
+    #     unique_cases = df[case_id].unique()
+        
+    #     for case in unique_cases:
+    #         case_df = df[df[case_id] == case]
+    #         cat = case_df[case_name].to_list()
+    #         for i in range(len(cat) - 1):
+    #             prefix = cat[0] if i == 0 else " ".join(cat[:i + 1])
+    #             next_cat = cat[i + 1]
+    #             row = [case, prefix, i, next_cat] + case_df.iloc[i][self._additional_columns].tolist()
+    #             processed_df.loc[idx] = row
+    #             idx += 1
+        
+    #     return processed_df
+    
+
+    # TODO: 
     def _next_categorical_helper_func(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Helper function to process next categorical data.
+        """Helper function to process next categorical data for all additional columns.
 
         Args:
             df (pd.DataFrame): Input dataframe.
@@ -144,23 +173,39 @@ class LogsDataProcessor:
         Returns:
             pd.DataFrame: Processed dataframe.
         """
-        case_id, case_name = "case:concept:name", self._target_column
-        processed_columns = ["case_id", "prefix", "k", "next_cat"] + self._additional_columns
-        processed_df = pd.DataFrame(columns=processed_columns)
-        idx = 0
+        case_id = "case:concept:name"
+        additional_columns = self._additional_columns
+        
+        # always add concept:name to additional_columns for prefix processing
+        additional_columns.insert(0, "concept:name")
+        
+        # Prepare columns for the processed DataFrame
+        processed_columns = ["case_id"]
+        for col in additional_columns:
+            processed_columns.extend([col, f"{col}_prefix", f"{col}_k", f"{col}_next"])
+        
+        processed_data = []
+        
         unique_cases = df[case_id].unique()
         
         for case in unique_cases:
             case_df = df[df[case_id] == case]
-            cat = case_df[case_name].to_list()
-            for i in range(len(cat) - 1):
-                prefix = cat[0] if i == 0 else " ".join(cat[:i + 1])
-                next_cat = cat[i + 1]
-                row = [case, prefix, i, next_cat] + case_df.iloc[i][self._additional_columns].tolist()
-                processed_df.loc[idx] = row
-                idx += 1
+            for i in range(len(case_df) - 1):
+                row = [case]
+                for col in additional_columns:
+                    original_value = case_df.iloc[i][col]
+                    cat = case_df[col].to_list()
+                    prefix_list = cat[:i + 1]
+                    prefix = " ".join(prefix_list)
+                    next_cat = cat[i + 1]
+                    row.extend([original_value, prefix, i, next_cat])
+                processed_data.append(row)
+        
+        processed_df = pd.DataFrame(processed_data, columns=processed_columns)
         
         return processed_df
+
+
 
     def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]) -> None:
         """Processes data for the next categorical task.
