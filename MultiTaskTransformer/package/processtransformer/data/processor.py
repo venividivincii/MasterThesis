@@ -82,7 +82,10 @@ class LogsDataProcessor:
     
     
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
+        
         special_tokens = ["[PAD]", "[UNK]"]
+        print(self._org_columns)
+        print(self._additional_columns)
         if "concept:name" not in self._additional_columns:
             columns = ["concept:name"] + self._additional_columns
         else:
@@ -133,14 +136,15 @@ class LogsDataProcessor:
             pd.DataFrame: Processed dataframe.
         """
         case_id = "case:concept:name"
-        additional_columns = self._additional_columns
+        self._additional_columns
         
         # always add concept:name to additional_columns for prefix processing
-        additional_columns.insert(0, "concept:name")
+        if "concept:name" not in self._additional_columns:
+            self._additional_columns.insert(0, "concept:name")
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
-        for col in additional_columns:
+        for col in self._additional_columns:
             processed_columns.extend([col, f"{col}_prefix", f"{col}_k", f"{col}_next"])
         
         processed_data = []
@@ -150,7 +154,7 @@ class LogsDataProcessor:
             case_df = df[df[case_id] == case]
             for i in range(len(case_df) - 1):
                 row = [case]
-                for col in additional_columns:
+                for col in self._additional_columns:
                     original_value = case_df.iloc[i][col]
                     cat = case_df[col].to_list()
                     prefix_list = cat[:i + 1]
@@ -220,6 +224,7 @@ class LogsDataProcessor:
             
             train_df[feature] = train_tokenized_values
             train_df[prefix_col] = train_padded_prefix
+            
             
             test_tokenized_values, test_padded_prefix = self._tokenize_and_pad_feature(test_prefix_df, test_df[feature], word_dict)
 
