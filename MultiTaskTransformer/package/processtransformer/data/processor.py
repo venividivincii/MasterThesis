@@ -168,7 +168,7 @@ class LogsDataProcessor:
         return processed_df
     
     
-    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series, word_dict: dict):
+    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series, x_word_dict: dict, y_word_dict: dict):
 
         if isinstance(prefixes, pd.Series):
             prefixes = prefixes.to_frame()
@@ -180,15 +180,15 @@ class LogsDataProcessor:
 
         tokenized_prefix = []
         for seq in prefixes.iloc[:, 0]:
-            tokenized_seq = [word_dict.get(word, word_dict["[UNK]"]) for word in str(seq).split()]
+            tokenized_seq = [x_word_dict.get(word, x_word_dict["[UNK]"]) for word in str(seq).split()]
             tokenized_prefix.append(tokenized_seq)
 
         # # Ensure feature_values is a single column Series
         # if isinstance(feature_values, pd.DataFrame):
         #     feature_values = feature_values.iloc[:, 0]
 
-        tokenized_values = feature_values.apply(lambda x: word_dict.get(x, word_dict["[UNK]"]))
-        tokenized_next = next_feature.apply(lambda x: word_dict.get(x, word_dict["[UNK]"]))
+        tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
+        tokenized_next = next_feature.apply(lambda x: y_word_dict.get(x, y_word_dict["[UNK]"]))
 
         padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
@@ -211,18 +211,20 @@ class LogsDataProcessor:
         train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
         
         for feature in metadata:
-            if feature == self._target_column:
-                word_dict = metadata[feature][f"{feature}##y_word_dict"]
-            else:
-                word_dict = metadata[feature][f"{feature}##x_word_dict"]
-                
+            # if feature == self._target_column:
+            #     word_dict = metadata[feature][f"{feature}##y_word_dict"]
+            # else:
+            #     word_dict = metadata[feature][f"{feature}##x_word_dict"]
+            
+            x_word_dict = metadata[feature][f"{feature}##x_word_dict"]      
+            y_word_dict = metadata[feature][f"{feature}##y_word_dict"]  
                 
             prefix_col = f"{feature}_prefix"
             train_prefix_df = train_df[prefix_col]
             test_prefix_df = test_df[prefix_col]
 
             train_tokenized_values, train_tokenized_next, train_padded_prefix = self._tokenize_and_pad_feature(train_prefix_df,
-                                                                            train_df[feature], train_df[f"{feature}_next"], word_dict)
+                                                        train_df[feature], train_df[f"{feature}_next"], x_word_dict, y_word_dict)
             # train_tokenized_values, train_padded_prefix = self._tokenize_and_pad_feature(train_prefix_df, train_df[feature], word_dict)
 
             # Debugging: Ensure lengths match
@@ -235,7 +237,7 @@ class LogsDataProcessor:
             
             
             test_tokenized_values, test_tokenized_next, test_padded_prefix = self._tokenize_and_pad_feature(test_prefix_df,
-                                                                            test_df[feature], test_df[f"{feature}_next"], word_dict)
+                                                        test_df[feature], test_df[f"{feature}_next"], x_word_dict, y_word_dict)
 
             # Ensure lengths match
             # if len(test_tokenized_values) != len(test_df[feature]):
