@@ -82,7 +82,7 @@ class LogsDataProcessor:
     
         
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
-        special_tokens = ["[PAD]", "[UNK]", "[END]"]
+        special_tokens = ["[PAD]", "[UNK]"]
         
         print(self._org_columns)
         print(self._additional_columns)
@@ -146,22 +146,22 @@ class LogsDataProcessor:
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
         for col in additional_columns:
-            processed_columns.extend([col, f"{col}_prefix", f"{col}_k", f"{col}_next"])
+            processed_columns.extend([col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature"])
         
         processed_data = []
         unique_cases = df[case_id].unique()
         
         for case in unique_cases:
             case_df = df[df[case_id] == case]
-            for i in range(len(case_df)):
+            for i in range(len(case_df)-1):
                 row = [case]
                 for col in additional_columns:
                     original_value = case_df.iloc[i][col]
                     cat = case_df[col].to_list()
                     prefix_list = cat[:i + 1]
                     prefix = " ".join(prefix_list)
-                    next_cat = "[END]" if i == len(case_df) - 1 else cat[i + 1]
-                    row.extend([original_value, prefix, i, next_cat])
+                    next_cat = cat[i + 1]
+                    row.extend([original_value, prefix, i+1, next_cat])
                 processed_data.append(row)
         
         processed_df = pd.DataFrame(processed_data, columns=processed_columns)
@@ -173,8 +173,8 @@ class LogsDataProcessor:
         if isinstance(prefixes, pd.Series):
             prefixes = prefixes.to_frame()
 
-        if prefixes.shape[1] == 0:
-            raise ValueError("The 'prefixes' DataFrame must have at least one column.")
+        # if prefixes.shape[1] == 0:
+        #     raise ValueError("The 'prefixes' DataFrame must have at least one column.")
 
         max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
 
@@ -224,7 +224,7 @@ class LogsDataProcessor:
             test_prefix_df = test_df[prefix_col]
 
             train_tokenized_values, train_tokenized_next, train_padded_prefix = self._tokenize_and_pad_feature(train_prefix_df,
-                                                        train_df[feature], train_df[f"{feature}_next"], x_word_dict, y_word_dict)
+                                                        train_df[feature], train_df[f"{feature}_next-feature"], x_word_dict, y_word_dict)
             # train_tokenized_values, train_padded_prefix = self._tokenize_and_pad_feature(train_prefix_df, train_df[feature], word_dict)
 
             # Debugging: Ensure lengths match
@@ -232,19 +232,19 @@ class LogsDataProcessor:
             #     raise ValueError(f"Length mismatch: train_tokenized_values ({len(train_tokenized_values)}) vs train_df[feature] ({len(train_df[feature])})")
             
             train_df[feature] = train_tokenized_values
-            train_df[f"{feature}_next"] = train_tokenized_next
+            train_df[f"{feature}_next-feature"] = train_tokenized_next
             train_df[prefix_col] = train_padded_prefix
             
             
             test_tokenized_values, test_tokenized_next, test_padded_prefix = self._tokenize_and_pad_feature(test_prefix_df,
-                                                        test_df[feature], test_df[f"{feature}_next"], x_word_dict, y_word_dict)
+                                                        test_df[feature], test_df[f"{feature}_next-feature"], x_word_dict, y_word_dict)
 
             # Ensure lengths match
             # if len(test_tokenized_values) != len(test_df[feature]):
             #     raise ValueError(f"Length mismatch: test_tokenized_values ({len(test_tokenized_values)}) vs test_df[feature] ({len(test_df[feature])})")
             
             test_df[feature] = test_tokenized_values
-            test_df[f"{feature}_next"] = test_tokenized_next
+            test_df[f"{feature}_next-feature"] = test_tokenized_next
             test_df[prefix_col] = test_padded_prefix
         
         train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"), index=False)
