@@ -114,10 +114,16 @@ class LogsDataLoader:
         with open(os.path.join(self._dir_path, f"{self._preprocessing_id}_metadata.json"), "r") as json_file:
             metadata = json.load(json_file)
         
-        x_word_dict = metadata["x_word_dict"]
-        y_word_dict = metadata["y_word_dict"]
-        max_case_length = self.get_max_case_length(train_df["prefix"].values)
-        vocab_size = len(x_word_dict)
+        # x_word_dict = metadata["x_word_dict"]
+        # y_word_dict = metadata["y_word_dict"]
+        x_word_dict = {key: value[f"{key}##x_word_dict"] for key, value in metadata.items()}
+        y_word_dict = {key: value[f"{key}##y_word_dict"] for key, value in metadata.items()}
+        max_case_length = self.get_max_case_length(train_df["concept:name_prefix"].values)
+        vocab_size_dict = {key: len(value) for key, value in x_word_dict.items()}
+        
+        # vocab_size_dict = len(x_word_dict)
+            
+        # vocab_size = len(x_word_dict)
         total_classes = len(y_word_dict)
         
-        return train_df, test_df, x_word_dict, y_word_dict, max_case_length, vocab_size, total_classes
+        return train_df, test_df, x_word_dict, y_word_dict, max_case_length, vocab_size_dict, total_classes

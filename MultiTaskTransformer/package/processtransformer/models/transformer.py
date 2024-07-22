@@ -71,7 +71,8 @@ class TokenAndPositionEmbedding(layers.Layer):
         x = self.token_emb(x)
         return x + positions  # Combine token and position embeddings
 
-def get_next_categorical_model(max_case_length, vocab_size, output_dim,
+# TODO: vocab_size to list of vocab_sizes
+def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
                                num_categorical_features, num_numerical_features,
                                num_classes_list, embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
     """
@@ -102,38 +103,37 @@ def get_next_categorical_model(max_case_length, vocab_size, output_dim,
     inputs = layers.Input(shape=(max_case_length,), name="inputs")
     additional_inputs = layers.Input(shape=(num_categorical_features + num_numerical_features,), name="additional_inputs") if (num_categorical_features + num_numerical_features) > 0 else None
     
-    # Token and position embedding
-    x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
+    # Token and position embedding for the concept:name sequence input
+    x = TokenAndPositionEmbedding(max_case_length, vocab_size_dict['concept:name'], embed_dim)(inputs)
     
     if additional_inputs is not None:
         # Process additional features: separate categorical and numerical processing
-        categorical_embs = []
+        additional_embs = []
+        
+        # Token and position embedding for categorical features
         if num_categorical_features > 0:
             for i in range(num_categorical_features):
                 categorical_feature = additional_inputs[:, i]
                 categorical_feature = tf.cast(categorical_feature, tf.int32)  # Ensure categorical features are int32
                 num_classes = num_classes_list[i]
-                categorical_emb = layers.Embedding(input_dim=num_classes + 1, output_dim=embed_dim)(categorical_feature)
-                categorical_embs.append(categorical_emb)
-            categorical_emb = layers.Concatenate()(categorical_embs) if len(categorical_embs) > 1 else categorical_embs[0]
-
+                categorical_emb = TokenAndPositionEmbedding(1, num_classes + 1, embed_dim)(tf.expand_dims(categorical_feature, -1))
+                additional_embs.append(categorical_emb)
+        
+        # Token and position embedding for numerical features
         if num_numerical_features > 0:
             numerical_features = additional_inputs[:, num_categorical_features:num_categorical_features + num_numerical_features]
-            numerical_dense = layers.Dense(embed_dim, activation="relu")(numerical_features)
-        else:
-            numerical_dense = None
+            numerical_emb = TokenAndPositionEmbedding(1, numerical_features.shape[-1], embed_dim)(tf.expand_dims(numerical_features, -1))
+            additional_embs.append(numerical_emb)
 
-        if categorical_emb is not None and numerical_dense is not None:
-            combined_features = layers.Concatenate()([categorical_emb, numerical_dense])
-        elif categorical_emb is not None:
-            combined_features = categorical_emb
-        else:
-            combined_features = numerical_dense
-
+        # Concatenate all additional embeddings
+        combined_features = layers.Concatenate()(additional_embs) if len(additional_embs) > 1 else additional_embs[0]
+        
+        # Expand combined features to match the sequence length
         combined_features_expanded = layers.RepeatVector(max_case_length)(combined_features)
         
         # Combine with token embeddings
         x = layers.Concatenate()([x, combined_features_expanded])
+        
         # Project combined embeddings back to the desired dimension
         x = layers.Dense(embed_dim, activation="relu")(x)
     
@@ -159,6 +159,7 @@ def get_next_categorical_model(max_case_length, vocab_size, output_dim,
         transformer = Model(inputs=[inputs], outputs=outputs, name="next_categorical_transformer")
     
     return transformer
+
 
 def get_next_time_model(max_case_length, vocab_size, output_dim = 1, 
     embed_dim = 36, num_heads = 4, ff_dim = 64):
