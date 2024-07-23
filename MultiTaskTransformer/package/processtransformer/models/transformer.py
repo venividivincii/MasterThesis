@@ -73,7 +73,7 @@ class TokenAndPositionEmbedding(layers.Layer):
 
 # TODO: vocab_size to list of vocab_sizes
 def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
-                               num_categorical_features, num_numerical_features,
+                               categorical_features, numerical_features,
                                num_classes_list, embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
     """
     Constructs the next categorical prediction model using a transformer architecture.
@@ -96,12 +96,12 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
     print("Creating model for task next_categorical...")
     
     # Ensure num_classes_list is a list and has the correct length
-    if not isinstance(num_classes_list, list) or len(num_classes_list) != num_categorical_features:
+    if not isinstance(num_classes_list, list) or len(num_classes_list) != len(categorical_features):
         raise ValueError("num_classes_list must be a list with length equal to num_categorical_features")
 
     # Input layers
     inputs = layers.Input(shape=(max_case_length,), name="inputs")
-    additional_inputs = layers.Input(shape=(num_categorical_features + num_numerical_features,), name="additional_inputs") if (num_categorical_features + num_numerical_features) > 0 else None
+    # additional_inputs = layers.Input(shape=(len(categorical_features) + len(numerical_features),), name="additional_inputs") if (num_categorical_features + num_numerical_features) > 0 else None
     
     # Token and position embedding for the concept:name sequence input
     x = TokenAndPositionEmbedding(max_case_length, vocab_size_dict['concept:name'], embed_dim)(inputs)
@@ -111,8 +111,8 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
         additional_embs = []
         
         # Token and position embedding for categorical features
-        if num_categorical_features > 0:
-            for i in range(num_categorical_features):
+        if len(categorical_features) > 0:
+            for i in range(len(categorical_features)):
                 categorical_feature = additional_inputs[:, i]
                 categorical_feature = tf.cast(categorical_feature, tf.int32)  # Ensure categorical features are int32
                 num_classes = num_classes_list[i]
@@ -120,8 +120,8 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
                 additional_embs.append(categorical_emb)
         
         # Token and position embedding for numerical features
-        if num_numerical_features > 0:
-            numerical_features = additional_inputs[:, num_categorical_features:num_categorical_features + num_numerical_features]
+        if len(numerical_features) > 0:
+            numerical_features = additional_inputs[:, len(categorical_features):len(categorical_features) + len(numerical_features)]
             numerical_emb = TokenAndPositionEmbedding(1, numerical_features.shape[-1], embed_dim)(tf.expand_dims(numerical_features, -1))
             additional_embs.append(numerical_emb)
 

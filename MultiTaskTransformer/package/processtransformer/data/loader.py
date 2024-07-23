@@ -61,11 +61,14 @@ class LogsDataLoader:
 
         return combined_features, num_categorical, num_numerical
 
+
+    # old method
     def prepare_data_next_categorical(self, df: pd.DataFrame, x_word_dict: Dict[str, int], 
                                       y_word_dict: Dict[str, int], max_case_length: int, 
                                       full_df: Optional[pd.DataFrame] = None,
                                       shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], int, int]:
-        
+            
+            
         x = df["prefix"].values
         y = df["next_cat"].values
         
@@ -83,6 +86,21 @@ class LogsDataLoader:
         token_y = np.array([y_word_dict[label] for label in y], dtype=np.float32)
         
         return token_x, token_y, additional_features, num_categorical, num_numerical
+    
+    
+    # new method
+    def prepare_data(self, df: pd.DataFrame) -> Tuple[dict, dict]:
+        x_dict, y_dict = {}, {}
+        for idx, col in enumerate(df):
+            # feature column
+            if idx%4 == 1:
+                x_dict.update({col: df.iloc[:, idx]})
+            # next-feature column
+            elif idx != 0 and idx%4 == 0:
+                y_dict.update({col: df.iloc[:, idx]})
+        return x_dict, y_dict
+        
+    
 
     def get_max_case_length(self, train_x: np.ndarray) -> int:
         """Gets the maximum length of cases for padding.
@@ -121,9 +139,12 @@ class LogsDataLoader:
         max_case_length = self.get_max_case_length(train_df["concept:name_prefix"].values)
         vocab_size_dict = {key: len(value) for key, value in x_word_dict.items()}
         
-        # vocab_size_dict = len(x_word_dict)
+        # features in word_dict are categorical
+        categorical_features = x_word_dict.keys()
+        # features not in word_dict are numerical
+        numerical_features = [col for col in train_df if col not in categorical_features]
             
         # vocab_size = len(x_word_dict)
         total_classes = len(y_word_dict)
         
-        return train_df, test_df, x_word_dict, y_word_dict, max_case_length, vocab_size_dict, total_classes
+        return train_df, test_df, x_word_dict, y_word_dict, max_case_length, vocab_size_dict, total_classes, categorical_features, numerical_features
