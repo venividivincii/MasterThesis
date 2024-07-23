@@ -54,6 +54,7 @@ class TokenAndPositionEmbedding(layers.Layer):
         super(TokenAndPositionEmbedding, self).__init__()
         self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
         self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
+        
 
     def call(self, x):
         """
@@ -94,52 +95,25 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
         tf.keras.Model: Compiled transformer model for next categorical prediction.
     """
     print("Creating model for task next_categorical...")
-    
-    # Ensure num_classes_list is a list and has the correct length
-    if not isinstance(num_classes_list, list) or len(num_classes_list) != len(categorical_features):
-        raise ValueError("num_classes_list must be a list with length equal to num_categorical_features")
 
-    # Input layers
-    inputs = layers.Input(shape=(max_case_length,), name="inputs")
-    # additional_inputs = layers.Input(shape=(len(categorical_features) + len(numerical_features),), name="additional_inputs") if (num_categorical_features + num_numerical_features) > 0 else None
+    # Categorical Input layers
+    inputs = [] # inputs contain categorigal features first, then numerical features
+    for idx, cat_feature in enumerate(categorical_features):
+        input = layers.Input(shape=(max_case_length,), name=cat_feature)
+        inputs.append( input )
     
-    # Token and position embedding for the concept:name sequence input
-    x = TokenAndPositionEmbedding(max_case_length, vocab_size_dict['concept:name'], embed_dim)(inputs)
-    
-    if additional_inputs is not None:
-        # Process additional features: separate categorical and numerical processing
-        additional_embs = []
+    # Token and position embedding for categorical features
+    x_cat_list = []
+    for idx, input in enumerate(inputs):
+        x_cat_feature = TokenAndPositionEmbedding(max_case_length, list(vocab_size_dict.values())[idx], embed_dim)(input)
+        x_cat_list.append( TransformerBlock(embed_dim, num_heads, ff_dim)(x_cat_feature) )
         
-        # Token and position embedding for categorical features
-        if len(categorical_features) > 0:
-            for i in range(len(categorical_features)):
-                categorical_feature = additional_inputs[:, i]
-                categorical_feature = tf.cast(categorical_feature, tf.int32)  # Ensure categorical features are int32
-                num_classes = num_classes_list[i]
-                categorical_emb = TokenAndPositionEmbedding(1, num_classes + 1, embed_dim)(tf.expand_dims(categorical_feature, -1))
-                additional_embs.append(categorical_emb)
-        
-        # Token and position embedding for numerical features
-        if len(numerical_features) > 0:
-            numerical_features = additional_inputs[:, len(categorical_features):len(categorical_features) + len(numerical_features)]
-            numerical_emb = TokenAndPositionEmbedding(1, numerical_features.shape[-1], embed_dim)(tf.expand_dims(numerical_features, -1))
-            additional_embs.append(numerical_emb)
-
-        # Concatenate all additional embeddings
-        combined_features = layers.Concatenate()(additional_embs) if len(additional_embs) > 1 else additional_embs[0]
-        
-        # Expand combined features to match the sequence length
-        combined_features_expanded = layers.RepeatVector(max_case_length)(combined_features)
-        
-        # Combine with token embeddings
-        x = layers.Concatenate()([x, combined_features_expanded])
-        
-        # Project combined embeddings back to the desired dimension
-        x = layers.Dense(embed_dim, activation="relu")(x)
+    # concat categorical layers
+    x = layers.Concatenate()(x_cat_list)
     
     # Stacking multiple transformer blocks
     for _ in range(num_layers):
-        x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
+        x = TransformerBlock(embed_dim*len(x_cat_list), num_heads, ff_dim)(x)
     
     # Global average pooling
     x = layers.GlobalAveragePooling1D()(x)
@@ -153,10 +127,7 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
     outputs = layers.Dense(output_dim, activation="softmax", name="outputs")(x)
     
     # Model definition
-    if additional_inputs is not None:
-        transformer = Model(inputs=[inputs, additional_inputs], outputs=outputs, name="next_categorical_transformer")
-    else:
-        transformer = Model(inputs=[inputs], outputs=outputs, name="next_categorical_transformer")
+    transformer = Model(inputs=[inputs], outputs=outputs, name="next_categorical_transformer")
     
     return transformer
 

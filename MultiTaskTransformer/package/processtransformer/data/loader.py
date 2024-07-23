@@ -63,41 +63,58 @@ class LogsDataLoader:
 
 
     # old method
-    def prepare_data_next_categorical(self, df: pd.DataFrame, x_word_dict: Dict[str, int], 
-                                      y_word_dict: Dict[str, int], max_case_length: int, 
-                                      full_df: Optional[pd.DataFrame] = None,
-                                      shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], int, int]:
+    # def prepare_data_next_categorical(self, df: pd.DataFrame, x_word_dict: Dict[str, int], 
+    #                                   y_word_dict: Dict[str, int], max_case_length: int, 
+    #                                   full_df: Optional[pd.DataFrame] = None,
+    #                                   shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], int, int]:
             
             
-        x = df["prefix"].values
-        y = df["next_cat"].values
+    #     x = df["prefix"].values
+    #     y = df["next_cat"].values
         
-        if df.shape[1] > 4:
-            additional_features, num_categorical, num_numerical = self._process_additional_features(df.iloc[:, 4:], fit=(full_df is not None))
-        else:
-            additional_features = np.empty((len(df), 0))
-            num_categorical = 0
-            num_numerical = 0
+    #     if df.shape[1] > 4:
+    #         additional_features, num_categorical, num_numerical = self._process_additional_features(df.iloc[:, 4:], fit=(full_df is not None))
+    #     else:
+    #         additional_features = np.empty((len(df), 0))
+    #         num_categorical = 0
+    #         num_numerical = 0
         
-        if shuffle:
-            x, y, additional_features = utils.shuffle(x, y, additional_features)
+    #     if shuffle:
+    #         x, y, additional_features = utils.shuffle(x, y, additional_features)
         
-        token_x = self._tokenize_and_pad(x, x_word_dict, max_case_length)
-        token_y = np.array([y_word_dict[label] for label in y], dtype=np.float32)
+    #     token_x = self._tokenize_and_pad(x, x_word_dict, max_case_length)
+    #     token_y = np.array([y_word_dict[label] for label in y], dtype=np.float32)
         
-        return token_x, token_y, additional_features, num_categorical, num_numerical
+    #     return token_x, token_y, additional_features, num_categorical, num_numerical
     
     
-    # new method
+    # TODO: new method
     def prepare_data(self, df: pd.DataFrame) -> Tuple[dict, dict]:
         x_dict, y_dict = {}, {}
         for idx, col in enumerate(df):
             # feature column
             if idx%4 == 1:
-                x_dict.update({col: df.iloc[:, idx]})
+                col_name = col
+            # feature-prefix column
+            elif idx%4 == 2:
+                x = df.iloc[:, idx]
+                # Convert each string of numbers to a list of integers
+                x = x.apply(lambda x: [float(num) for num in x.split()])
+                # Convert to NumPy array of type np.float32
+                x = np.array(x.tolist(), dtype=np.float32)
+                # update dict
+                x_dict.update( {col_name: x} )
             # next-feature column
             elif idx != 0 and idx%4 == 0:
-                y_dict.update({col: df.iloc[:, idx]})
+                y = df.iloc[:, idx]
+                # Convert to NumPy array of type np.float32
+                y = np.array(y.tolist(), dtype=np.float32)
+                # TODO: Debugging
+                print("y:")
+                print(y)
+                print(type(y))
+                # update dict
+                y_dict.update({col_name: y})
         return x_dict, y_dict
         
     
