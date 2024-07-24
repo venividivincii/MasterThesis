@@ -168,7 +168,7 @@ class LogsDataProcessor:
         return processed_df
     
     
-    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series, x_word_dict: dict, y_word_dict: dict):
+    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series, x_word_dict: dict, y_word_dict: dict, max_length_prefix=None):
 
         if isinstance(prefixes, pd.Series):
             prefixes = prefixes.to_frame()
@@ -176,7 +176,8 @@ class LogsDataProcessor:
         # if prefixes.shape[1] == 0:
         #     raise ValueError("The 'prefixes' DataFrame must have at least one column.")
 
-        max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
+        if max_length_prefix == None:
+            max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
 
         tokenized_prefix = []
         for seq in prefixes.iloc[:, 0]:
@@ -193,7 +194,7 @@ class LogsDataProcessor:
         padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
 
-        return tokenized_values, tokenized_next, padded_prefix_str
+        return tokenized_values, tokenized_next, padded_prefix_str, max_length_prefix
 
 
 
@@ -217,13 +218,13 @@ class LogsDataProcessor:
             #     word_dict = metadata[feature][f"{feature}##x_word_dict"]
             
             x_word_dict = metadata[feature][f"{feature}##x_word_dict"]      
-            y_word_dict = metadata[feature][f"{feature}##y_word_dict"]  
+            y_word_dict = metadata[feature][f"{feature}##y_word_dict"]
                 
             prefix_col = f"{feature}_prefix"
             train_prefix_df = train_df[prefix_col]
             test_prefix_df = test_df[prefix_col]
 
-            train_tokenized_values, train_tokenized_next, train_padded_prefix = self._tokenize_and_pad_feature(train_prefix_df,
+            train_tokenized_values, train_tokenized_next, train_padded_prefix, max_length_prefix = self._tokenize_and_pad_feature(train_prefix_df,
                                                         train_df[feature], train_df[f"{feature}_next-feature"], x_word_dict, y_word_dict)
             # train_tokenized_values, train_padded_prefix = self._tokenize_and_pad_feature(train_prefix_df, train_df[feature], word_dict)
 
@@ -236,8 +237,8 @@ class LogsDataProcessor:
             train_df[prefix_col] = train_padded_prefix
             
             
-            test_tokenized_values, test_tokenized_next, test_padded_prefix = self._tokenize_and_pad_feature(test_prefix_df,
-                                                        test_df[feature], test_df[f"{feature}_next-feature"], x_word_dict, y_word_dict)
+            test_tokenized_values, test_tokenized_next, test_padded_prefix, max_length_prefix = self._tokenize_and_pad_feature(test_prefix_df,
+                                                        test_df[feature], test_df[f"{feature}_next-feature"], x_word_dict, y_word_dict, max_length_prefix)
 
             # Ensure lengths match
             # if len(test_tokenized_values) != len(test_df[feature]):
