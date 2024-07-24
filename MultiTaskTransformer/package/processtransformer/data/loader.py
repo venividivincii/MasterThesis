@@ -109,10 +109,6 @@ class LogsDataLoader:
                 y = df.iloc[:, idx]
                 # Convert to NumPy array of type np.float32
                 y = np.array(y.tolist(), dtype=np.float32)
-                # TODO: Debugging
-                print("y:")
-                print(y)
-                print(type(y))
                 # update dict
                 y_dict.update({col_name: y})
         return x_dict, y_dict
@@ -162,6 +158,6 @@ class LogsDataLoader:
         numerical_features = [col for col in train_df if col not in categorical_features]
             
         # vocab_size = len(x_word_dict)
-        total_classes = len(y_word_dict)
+        # total_classes = len(y_word_dict)
         
-        return train_df, test_df, x_word_dict, y_word_dict, max_case_length, vocab_size_dict, total_classes, categorical_features, numerical_features
+        return train_df, test_df, x_word_dict, y_word_dict, max_case_length, vocab_size_dict, categorical_features, numerical_features

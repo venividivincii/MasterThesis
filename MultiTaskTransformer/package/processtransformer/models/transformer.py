@@ -127,45 +127,45 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
     outputs = layers.Dense(output_dim, activation="softmax", name="outputs")(x)
     
     # Model definition
-    transformer = Model(inputs=[inputs], outputs=outputs, name="next_categorical_transformer")
+    transformer = Model(inputs=inputs, outputs=outputs, name="next_categorical_transformer")
     
     return transformer
 
 
-def get_next_time_model(max_case_length, vocab_size, output_dim = 1, 
-    embed_dim = 36, num_heads = 4, ff_dim = 64):
+# def get_next_time_model(max_case_length, vocab_size, output_dim = 1, 
+#     embed_dim = 36, num_heads = 4, ff_dim = 64):
 
-    inputs = layers.Input(shape=(max_case_length,))
-    # Three time-based features
-    time_inputs = layers.Input(shape=(3,)) 
-    x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
-    x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x_t = layers.Dense(32, activation="relu")(time_inputs)
-    x = layers.Concatenate()([x, x_t])
-    x = layers.Dropout(0.1)(x)
-    x = layers.Dense(128, activation="relu")(x)
-    x = layers.Dropout(0.1)(x)
-    outputs = layers.Dense(output_dim, activation="linear")(x)
-    transformer = tf.keras.Model(inputs=[inputs, time_inputs], outputs=outputs,
-        name = "next_time_transformer")
-    return transformer
+#     inputs = layers.Input(shape=(max_case_length,))
+#     # Three time-based features
+#     time_inputs = layers.Input(shape=(3,)) 
+#     x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
+#     x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
+#     x = layers.GlobalAveragePooling1D()(x)
+#     x_t = layers.Dense(32, activation="relu")(time_inputs)
+#     x = layers.Concatenate()([x, x_t])
+#     x = layers.Dropout(0.1)(x)
+#     x = layers.Dense(128, activation="relu")(x)
+#     x = layers.Dropout(0.1)(x)
+#     outputs = layers.Dense(output_dim, activation="linear")(x)
+#     transformer = tf.keras.Model(inputs=[inputs, time_inputs], outputs=outputs,
+#         name = "next_time_transformer")
+#     return transformer
 
-def get_remaining_time_model(max_case_length, vocab_size, output_dim = 1, 
-    embed_dim = 36, num_heads = 4, ff_dim = 64):
+# def get_remaining_time_model(max_case_length, vocab_size, output_dim = 1, 
+#     embed_dim = 36, num_heads = 4, ff_dim = 64):
 
-    inputs = layers.Input(shape=(max_case_length,))
-    # Three time-based features
-    time_inputs = layers.Input(shape=(3,)) 
-    x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
-    x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x_t = layers.Dense(32, activation="relu")(time_inputs)
-    x = layers.Concatenate()([x, x_t])
-    x = layers.Dropout(0.1)(x)
-    x = layers.Dense(128, activation="relu")(x)
-    x = layers.Dropout(0.1)(x)
-    outputs = layers.Dense(output_dim, activation="linear")(x)
-    transformer = tf.keras.Model(inputs=[inputs, time_inputs], outputs=outputs,
-        name = "remaining_time_transformer")
-    return transformer
+#     inputs = layers.Input(shape=(max_case_length,))
+#     # Three time-based features
+#     time_inputs = layers.Input(shape=(3,)) 
+#     x = TokenAndPositionEmbedding(max_case_length, vocab_size, embed_dim)(inputs)
+#     x = TransformerBlock(embed_dim, num_heads, ff_dim)(x)
+#     x = layers.GlobalAveragePooling1D()(x)
+#     x_t = layers.Dense(32, activation="relu")(time_inputs)
+#     x = layers.Concatenate()([x, x_t])
+#     x = layers.Dropout(0.1)(x)
+#     x = layers.Dense(128, activation="relu")(x)
+#     x = layers.Dropout(0.1)(x)
+#     outputs = layers.Dense(output_dim, activation="linear")(x)
+#     transformer = tf.keras.Model(inputs=[inputs, time_inputs], outputs=outputs,
+#         name = "remaining_time_transformer")
+#     return transformer
