@@ -12,7 +12,7 @@ from ..constants import Task
 class LogsDataProcessor:
     def __init__(self, name: str, filepath: str, preprocessing_id: str, columns: List[str],
                  additional_columns: Optional[List[str]] = None, datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
-                 pool: int = 1, target_column: str = "concept:name"):
+                 pool: int = 1, target_column: str = "concept_name"):
         """Provides support for processing raw logs.
 
         Args:
@@ -57,8 +57,8 @@ class LogsDataProcessor:
             raise ValueError("Unsupported file format. Please provide a .csv or .xes file.")
         
         df = df[self._org_columns + self._additional_columns]
-        df.columns = ["case:concept:name", "concept:name", "time:timestamp"] + self._additional_columns
-        df["concept:name"] = df["concept:name"].str.lower().str.replace(" ", "-")
+        df.columns = ["case:concept:name", "concept_name", "time:timestamp"] + self._additional_columns
+        df["concept_name"] = df["concept_name"].str.lower().str.replace(" ", "-")
         df["time:timestamp"] = pd.to_datetime(df["time:timestamp"].str.replace("/", "-"), format=self._datetime_format)
         
         for idx, org_column in enumerate(self._org_columns):
@@ -74,7 +74,7 @@ class LogsDataProcessor:
             
         # replace all " " in prefix-columns with "_"
         prefix_columns = self._additional_columns
-        prefix_columns.insert(0, "concept:name")
+        prefix_columns.insert(0, "concept_name")
         for prefix_column in prefix_columns:
             df[prefix_column] = df[prefix_column].str.replace(' ', '_')
         
@@ -86,8 +86,8 @@ class LogsDataProcessor:
         
         print(self._org_columns)
         print(self._additional_columns)
-        if "concept:name" not in self._additional_columns:
-            columns = ["concept:name"] + self._additional_columns
+        if "concept_name" not in self._additional_columns:
+            columns = ["concept_name"] + self._additional_columns
         else:
             columns = self._additional_columns
         
@@ -98,17 +98,17 @@ class LogsDataProcessor:
             classes = list(df[column].unique())
             keys = special_tokens + classes
             val = range(len(keys))
-            coded_activity = {f"{column}##x_word_dict": dict(zip(keys, val))}
-            coded_activity.update({f"{column}##y_word_dict": dict(zip(keys, range(len(keys))))})
+            coded_activity = {"x_word_dict": dict(zip(keys, val))}
+            coded_activity.update({"y_word_dict": dict(zip(keys, range(len(keys))))})
             coded_column = {column: coded_activity}
             coded_columns.update(coded_column)
             print(f"Word dictionary for {column}: {coded_activity}")
-        
-        coded_json = json.dumps(coded_columns)
-        
-        with open(os.path.join(self._dir_path, f"{self._preprocessing_id}_metadata.json"), "w") as metadata_file:
-            metadata_file.write(coded_json)
             
+            # Store each column's metadata in a separate JSON file
+            coded_json = json.dumps(coded_activity)
+            with open(os.path.join(self._dir_path, f"{column}##metadata.json"), "w") as metadata_file:
+                metadata_file.write(coded_json)
+        
         return coded_columns
 
 
@@ -139,9 +139,9 @@ class LogsDataProcessor:
         case_id = "case:concept:name"
         additional_columns = self._additional_columns.copy()
         
-        # always add concept:name to additional_columns for prefix processing
-        if "concept:name" not in self._additional_columns:
-            self._additional_columns.insert(0, "concept:name")
+        # always add concept_name to additional_columns for prefix processing
+        if "concept_name" not in self._additional_columns:
+            self._additional_columns.insert(0, "concept_name")
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]

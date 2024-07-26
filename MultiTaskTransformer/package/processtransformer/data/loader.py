@@ -149,7 +149,7 @@ class LogsDataLoader:
         # y_word_dict = metadata["y_word_dict"]
         x_word_dict = {key: value[f"{key}##x_word_dict"] for key, value in metadata.items()}
         y_word_dict = {key: value[f"{key}##y_word_dict"] for key, value in metadata.items()}
-        max_case_length = self.get_max_case_length(train_df["concept:name_prefix"].values)
+        max_case_length = self.get_max_case_length(train_df["concept_name_prefix"].values)
         vocab_size_dict = {key: len(value) for key, value in x_word_dict.items()}
         
         # features in word_dict are categorical
