@@ -84,12 +84,15 @@ class LogsDataProcessor:
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
         special_tokens = ["[PAD]", "[UNK]"]
         
-        print(self._org_columns)
-        print(self._additional_columns)
-        if "concept_name" not in self._additional_columns:
-            columns = ["concept_name"] + self._additional_columns
-        else:
-            columns = self._additional_columns
+        # print(self._org_columns)
+        # print(self._additional_columns)
+        # if "concept_name" not in self._additional_columns:
+        #     columns = ["concept_name"] + self._additional_columns
+        # else:
+        #     columns = self._additional_columns
+        columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
+        print("## COLUMNS ##")
+        print(columns)
         
         print("Coding Log Meta-Data...")
         coded_columns = {}
@@ -137,7 +140,8 @@ class LogsDataProcessor:
             pd.DataFrame: Processed dataframe.
         """
         case_id = "case:concept:name"
-        additional_columns = self._additional_columns.copy()
+        # additional_columns = self._additional_columns.copy()
+        additional_columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
         
         # always add concept_name to additional_columns for prefix processing
         if "concept_name" not in self._additional_columns:
@@ -283,28 +287,69 @@ class LogsDataProcessor:
             sort_temporally (bool): Whether to sort the logs temporally.
             train_test_ratio (float): Ratio for splitting training and testing data.
         """
+        
         task_string = task.value
+        all_cols = ["concept_name"] + self._additional_columns
         
-        # TODO: adapt checking
-        # Check if preprocessed csv files already exist for the given task
-        if (os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
-            and os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))):
-            
-            print(f"Preprocessed train-test split for task {task_string} found. Preprocessing skipped.")
+        
+        # check whick columns have already processed files
+        existing_cols = []
+        for feature in all_cols:
+            if (os.path.isfile(os.path.join(self._dir_path, f"{feature}##metadata.json"))
+                and os.path.isfile(os.path.join(self._dir_path, f"{feature}##train.csv"))
+                and os.path.isfile(os.path.join(self._dir_path, f"{feature}##test.csv"))
+                ):
+                existing_cols.append(feature)
+                
+        # All preprocessing files exits
+        if len(all_cols) == len(existing_cols):
+            print("All processed files for current spec found. Preprocessing skipped.")
         else:
-            print(f"No preprocessed train-test split for task {task_string} found. Preprocessing...")
-        
             df = self._load_df(sort_temporally)
+            
+            # No preprocessing files exist
+            if len(existing_cols) == 0:
+                print("No Processed features found")
+            # some preprocessing files exist
+            else:
+                print("Processed features found:")
+                print(existing_cols)
+                print("Excluding features for preprocessing.")
+                # always keep concept_name faeture
+                if 'concept_name' in existing_cols: existing_cols = existing_cols.remove('concept_name')
+                # drop existing features from preprocessing df
+                df = df.drop(existing_cols, axis=1)
+                
             metadata = self._extract_logs_metadata(df)
             train_test_split_point = int(abs(df["case:concept:name"].nunique() * train_test_ratio))
             train_list = df["case:concept:name"].unique()[:train_test_split_point]
             test_list = df["case:concept:name"].unique()[train_test_split_point:]
+            # run preprocessing
+            print("Preprocessing...")
+            self._process_next_categorical(df, train_list, test_list, metadata)
             
-            if task == Task.NEXT_CATEGORICAL:
-                self._process_next_categorical(df, train_list, test_list, metadata)
-            elif task == Task.NEXT_TIME:
-                self._process_next_time(df, train_list, test_list)
-            elif task == Task.REMAINING_TIME:
-                self._process_remaining_time(df, train_list, test_list)
-            else:
-                raise ValueError("Invalid task.")
+        
+        # TODO: adapt checking
+        # Check if preprocessed csv files already exist for the given task
+        # if (os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
+        #     and os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))):
+            
+        #     print(f"Preprocessed train-test split for task {task_string} found. Preprocessing skipped.")
+        # else:
+        #     print(f"No preprocessed train-test split for task {task_string} found. Preprocessing...")
+        
+        #     df = self._load_df(sort_temporally)
+        #     print(df.head)
+        #     metadata = self._extract_logs_metadata(df)
+        #     train_test_split_point = int(abs(df["case:concept:name"].nunique() * train_test_ratio))
+        #     train_list = df["case:concept:name"].unique()[:train_test_split_point]
+        #     test_list = df["case:concept:name"].unique()[train_test_split_point:]
+            
+        #     if task == Task.NEXT_CATEGORICAL:
+        #         self._process_next_categorical(df, train_list, test_list, metadata)
+        #     elif task == Task.NEXT_TIME:
+        #         self._process_next_time(df, train_list, test_list)
+        #     elif task == Task.REMAINING_TIME:
+        #         self._process_remaining_time(df, train_list, test_list)
+        #     else:
+        #         raise ValueError("Invalid task.")
