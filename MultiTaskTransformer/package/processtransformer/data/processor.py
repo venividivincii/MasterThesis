@@ -102,14 +102,18 @@ class LogsDataProcessor:
             classes = list(df[column].unique())
             keys = special_tokens + classes
             val = range(len(keys))
-            coded_activity = {"x_word_dict": dict(zip(keys, val))}
-            coded_activity.update({"y_word_dict": dict(zip(keys, range(len(keys))))})
-            coded_column = {column: coded_activity}
-            coded_columns.update(coded_column)
-            print(f"Word dictionary for {column}: {coded_activity}")
+            # TODO: write feature type in dict
+            for feature_type, col_list in self._additional_columns.items():
+                if column in col_list:
+                    coded_feature = {"type": feature_type.value}
+                    break
+            coded_feature.update({"x_word_dict": dict(zip(keys, val))})
+            coded_feature.update({"y_word_dict": dict(zip(keys, range(len(keys))))})
+            coded_columns.update({column: coded_feature})
+            print(f"Word dictionary for {column}: {coded_feature}")
             
             # Store each column's metadata in a separate JSON file
-            coded_json = json.dumps(coded_activity)
+            coded_json = json.dumps(coded_feature)
             with open(os.path.join(self._dir_path, f"{column}##metadata.json"), "w") as metadata_file:
                 metadata_file.write(coded_json)
         
@@ -144,9 +148,9 @@ class LogsDataProcessor:
         # additional_columns = self._additional_columns.copy()
         additional_columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
         
-        # always add concept_name to additional_columns for prefix processing
-        if "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
-            self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+        # # always add concept_name to additional_columns
+        # if "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
+        #     self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
@@ -257,8 +261,8 @@ class LogsDataProcessor:
         """
         
         task_string = task.value
-        all_cols = ["concept_name"] + [item for sublist in self._additional_columns.values() for item in sublist]
         
+        all_cols = ["concept_name"] + [item for sublist in self._additional_columns.values() for item in sublist]
         
         # check whick columns have already processed files
         existing_cols = []
@@ -275,6 +279,10 @@ class LogsDataProcessor:
             
         else:
             df = self._load_df(sort_temporally)
+            
+            # always add concept_name to additional_columns
+            if "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
+                self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
             
             # No preprocessing files exist
             if len(existing_cols) == 0:
