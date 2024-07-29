@@ -6,7 +6,7 @@ import tensorflow as tf
 from sklearn import utils
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from typing import Dict, Tuple, Optional, List
-from ..constants import Task
+from ..constants import Task, Feature_Type
 
 class LogsDataLoader:
     def __init__(self, name: str, train_columns: List[str],
@@ -91,29 +91,34 @@ class LogsDataLoader:
     
     
     # TODO: new method
-    def prepare_data(self, df: pd.DataFrame) -> Tuple[dict, dict]:
-        x_dict, y_dict = {}, {}
+    def prepare_data( self, df: pd.DataFrame, max_case_length=False ) -> Tuple[dict, dict, int]:
+        x_token_dict, y_token_dict = {}, {}
         for idx, col in enumerate(df):
             # feature column
-            if idx%4 == 1:
+            if idx == 1:
                 col_name = col
             # feature-prefix column
-            elif idx%4 == 2:
+            elif idx == 2:
                 x = df.iloc[:, idx]
                 # Convert each string of numbers to a list of integers
                 x = x.apply(lambda x: [float(num) for num in x.split()])
                 # Convert to NumPy array of type np.float32
                 x = np.array(x.tolist(), dtype=np.float32)
                 # update dict
-                x_dict.update( {col_name: x} )
+                x_token_dict.update( {col_name: x} )
             # next-feature column
-            elif idx != 0 and idx%4 == 0:
+            elif idx  == 4:
                 y = df.iloc[:, idx]
                 # Convert to NumPy array of type np.float32
                 y = np.array(y.tolist(), dtype=np.float32)
                 # update dict
-                y_dict.update({col_name: y})
-        return x_dict, y_dict
+                y_token_dict.update({col_name: y})
+                
+        if max_case_length:
+            max_case_length = max( len(seq.split()) for seq in df["Prefix"].values )
+            return x_token_dict, y_token_dict, max_case_length
+        else:
+            return x_token_dict, y_token_dict
         
     
 
@@ -128,7 +133,7 @@ class LogsDataLoader:
         """
         return max(len(seq.split()) for seq in train_x)
 
-    def load_data(self, task: Task) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], Dict[str, int], int, int, int]:
+    def load_data(self) -> Tuple[ Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, Dict[str, int]], Dict[Feature_Type, List[str]] ]:
         """Loads preprocessed train-test split data.
 
         Args:
@@ -138,14 +143,12 @@ class LogsDataLoader:
             Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], Dict[str, int], int, int, int]: Loaded data and metadata.
         """
         print("Loading data from preprocessed train-test split...")
-        if task not in (Task.NEXT_CATEGORICAL, Task.NEXT_TIME, Task.REMAINING_TIME):
-            raise ValueError("Invalid task.")
         
         # all features needed for training and prediction
         features = list( set(self.train_columns + self.target_columns) )
         print(features)
         
-        train_dfs, test_dfs, word_dicts = {}, {}, {}
+        train_dfs, test_dfs, word_dicts, feature_type_dict = {}, {}, {}, {}
         for feature in features:
             train_dfs.update( {feature: pd.read_csv(os.path.join(self._dir_path, f"{feature}##train.csv"))} )
             test_dfs.update( {feature: pd.read_csv(os.path.join(self._dir_path, f"{feature}##test.csv"))} )
@@ -153,6 +156,12 @@ class LogsDataLoader:
                 metadata = json.load(json_file)
             # create dict with x_word_dict and y_word_dict for each feature
             word_dicts.update( {feature:  {key: metadata[key] for key in ["x_word_dict", "y_word_dict"] if key in metadata}} )
+            # create dict with feature types
+            feature_type = Feature_Type.get_member(metadata["type"])
+            if feature_type not in feature_type_dict.keys():
+                feature_type_dict.update( {feature_type: [feature]} )
+            else:
+                feature_type_dict[feature_type].append(feature)
         
         # train_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))
         # test_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
@@ -178,4 +187,4 @@ class LogsDataLoader:
         # vocab_size = len(x_word_dict)
         # total_classes = len(y_word_dict)
         
-        return train_dfs, test_dfs, word_dicts, max_case_length, vocab_size_dict, categorical_features, numerical_features
+        return train_dfs, test_dfs, word_dicts, feature_type_dict

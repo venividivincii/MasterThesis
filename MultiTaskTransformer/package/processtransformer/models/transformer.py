@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras import layers, Model
-import numpy as np
+from ..constants import Feature_Type
+from typing import List, Dict
 
 class TransformerBlock(layers.Layer):
     """
@@ -72,10 +73,10 @@ class TokenAndPositionEmbedding(layers.Layer):
         x = self.token_emb(x)
         return x + positions  # Combine token and position embeddings
 
-# TODO: vocab_size to list of vocab_sizes
-def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
-                               categorical_features, numerical_features,
-                               num_classes_list, embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+# TODO: vocab_size to list of vocab_sizesnum_classes_list
+def get_model(train_columns: List[str], target_columns: List[str], word_dict: Dict[str, Dict[str, int]], max_case_length: int,
+              vocab_size_dict: Dict[str, int], feature_type_dict: Dict[Feature_Type, List[str]],
+                               embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
     """
     Constructs the next categorical prediction model using a transformer architecture.
     
@@ -96,24 +97,30 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
     """
     print("Creating model for task next_categorical...")
 
+
     # Categorical Input layers
-    inputs = [] # inputs contain categorigal features first, then numerical features
-    for idx, cat_feature in enumerate(categorical_features):
-        input = layers.Input(shape=(max_case_length,), name=cat_feature)
-        inputs.append( input )
+    categorical_inputs, categorical_feature_layers = [], []
+    for cat_feature in [ s for s in train_columns if s in feature_type_dict[Feature_Type.CATEGORICAL] ]:
+        # Input Layer for categorical feature
+        categorical_input = layers.Input(shape=(max_case_length,), name=cat_feature)
+        categorical_inputs.append(categorical_input)
+        # Input embedding for categorical feature
+        categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dict[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
+        # Transformer Block for categorical feature
+        categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb) )
     
     # Token and position embedding for categorical features
-    x_cat_list = []
-    for idx, input in enumerate(inputs):
-        x_cat_feature = TokenAndPositionEmbedding(max_case_length, list(vocab_size_dict.values())[idx], embed_dim)(input)
-        x_cat_list.append( TransformerBlock(embed_dim, num_heads, ff_dim)(x_cat_feature) )
+    # x_cat_list = []
+    # for idx, input in enumerate(categorical_inputs):
+    #     x_cat_feature = TokenAndPositionEmbedding(max_case_length, list(vocab_size_dict.values())[idx], embed_dim)(input)
+    #     x_cat_list.append( TransformerBlock(embed_dim, num_heads, ff_dim)(x_cat_feature) )
         
-    # concat categorical layers
-    x = layers.Concatenate()(x_cat_list)
+    # concat categorical feature layers
+    x = layers.Concatenate()(categorical_feature_layers)
     
     # Stacking multiple transformer blocks
     for _ in range(num_layers):
-        x = TransformerBlock(embed_dim*len(x_cat_list), num_heads, ff_dim)(x)
+        x = TransformerBlock(embed_dim*len(categorical_feature_layers), num_heads, ff_dim)(x)
     
     # Global average pooling
     x = layers.GlobalAveragePooling1D()(x)
@@ -123,11 +130,14 @@ def get_next_categorical_model(max_case_length, vocab_size_dict, output_dim,
     x = layers.Dense(64, activation="relu")(x)
     x = layers.Dropout(0.1)(x)
     
-    # Output layer
-    outputs = layers.Dense(output_dim, activation="softmax", name="outputs")(x)
+    # Output layers for categorical features
+    outputs = []
+    for target_col in target_columns:
+        output_dim = len(word_dict[target_col]["y_word_dict"])
+        outputs.append( layers.Dense(output_dim, activation="softmax", name=target_col)(x) )
     
     # Model definition
-    transformer = Model(inputs=inputs, outputs=outputs, name="next_categorical_transformer")
+    transformer = Model(inputs=categorical_inputs, outputs=outputs, name="next_categorical_transformer")
     
     return transformer
 

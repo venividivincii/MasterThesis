@@ -14,3 +14,9 @@ class Feature_Type(enum.Enum):
   
   CATEGORICAL = "categorical"
   NUMERICAL = "numerical"
+  
+  def get_member(value):
+    for member in Feature_Type:
+        if member.value == value:
+            return member
+    raise ValueError(f"'{value}' is not a valid value for {Feature_Type.__name__}")
