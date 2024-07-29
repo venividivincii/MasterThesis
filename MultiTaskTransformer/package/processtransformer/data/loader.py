@@ -9,7 +9,7 @@ from typing import Dict, Tuple, Optional, List
 from ..constants import Task
 
 class LogsDataLoader:
-    def __init__(self, name: str, preprocessing_id, train_columns: List[str],
+    def __init__(self, name: str, train_columns: List[str],
                  target_columns: List[str], dir_path: str = "./datasets"):
         """Provides support for reading and pre-processing examples from processed logs.
 
@@ -20,7 +20,6 @@ class LogsDataLoader:
         self._dir_path = f"{dir_path}/{name}/processed"
         self.label_encoders = {}
         self.scalers = {}
-        self._preprocessing_id = preprocessing_id
         self.target_columns: List[str] = target_columns 
         self.train_columns: List[str] = train_columns
 

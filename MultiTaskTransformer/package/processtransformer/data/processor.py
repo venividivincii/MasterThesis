@@ -4,15 +4,16 @@ import json
 import pandas as pd
 import numpy as np
 from multiprocessing import Pool
-from typing import List, Optional
+from typing import List, Optional, Dict
 import pm4py
 import tensorflow as tf
-from ..constants import Task
+from ..constants import Task, Feature_Type
 
 class LogsDataProcessor:
-    def __init__(self, name: str, filepath: str, preprocessing_id: str, columns: List[str],
-                 additional_columns: Optional[List[str]] = None, datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
-                 pool: int = 1, target_column: str = "concept_name"):
+    def __init__(self, name: str, filepath: str, columns: List[str],
+                 additional_columns: Optional[Dict[Feature_Type, List[str]]] = None,
+                 datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
+                 pool: int = 1):
         """Provides support for processing raw logs.
 
         Args:
@@ -22,20 +23,18 @@ class LogsDataProcessor:
             additional_columns (Optional[List[str]]): List of additional column names.
             datetime_format (str): Format of datetime strings.
             pool (int): Number of CPUs (processes) to be used for data processing.
-            target_column (str): The target categorical column to predict.
         """
         self._name = name
         self._filepath = filepath
         self._org_columns = columns
-        self._additional_columns = additional_columns if additional_columns else []
+        # self._additional_columns = additional_columns if additional_columns else []
+        self._additional_columns = additional_columns
         self._datetime_format = datetime_format
         self._pool = pool
-        self._target_column = target_column
 
         # Create directory for saving processed datasets
         self._dir_path = os.path.join('datasets', self._name, "processed")
         os.makedirs(self._dir_path, exist_ok=True)
-        self._preprocessing_id = preprocessing_id
 
     def _load_df(self, sort_temporally: bool = False) -> pd.DataFrame:
         """Loads and preprocesses the raw log data.
@@ -47,6 +46,7 @@ class LogsDataProcessor:
             pd.DataFrame: Loaded dataframe.
         """
         filepath = os.path.join(os.path.dirname(self._dir_path), self._filepath)
+        additional_cols = [item for sublist in self._additional_columns.values() for item in sublist]
         
         print("Parsing Event-Log...")
         if filepath.endswith('.csv'):
@@ -56,24 +56,25 @@ class LogsDataProcessor:
         else:
             raise ValueError("Unsupported file format. Please provide a .csv or .xes file.")
         
-        df = df[self._org_columns + self._additional_columns]
-        df.columns = ["case:concept:name", "concept_name", "time:timestamp"] + self._additional_columns
+        df = df[self._org_columns + additional_cols]
+        df.columns = ["case:concept:name", "concept_name", "time:timestamp"] + additional_cols
         df["concept_name"] = df["concept_name"].str.lower().str.replace(" ", "-")
         df["time:timestamp"] = pd.to_datetime(df["time:timestamp"].str.replace("/", "-"), format=self._datetime_format)
         
         for idx, org_column in enumerate(self._org_columns):
-            # set target_column to new naming convention, if in org_columns
-            if org_column == self._target_column:
-                self._target_column = df.columns[idx]
             # When additional_column is in org columns, set additional_column to org_column name
-            for additional_column in self._additional_columns:
+            for additional_column in additional_cols:
                 if additional_column == org_column:
-                    self._additional_columns[additional_column] = df.columns[idx]
+                    # replace in feature dict
+                    for key, value_list in self._additional_columns.items():
+                        self._additional_columns[key] = [df.columns[idx] if item == additional_column else item for item in value_list]
+                    # replace in list of cols
+                    additional_cols[additional_column] = df.columns[idx]
         if sort_temporally:
             df.sort_values(by=["time:timestamp"], inplace=True)
             
         # replace all " " in prefix-columns with "_"
-        prefix_columns = self._additional_columns
+        prefix_columns = additional_cols
         prefix_columns.insert(0, "concept_name")
         for prefix_column in prefix_columns:
             df[prefix_column] = df[prefix_column].str.replace(' ', '_')
@@ -144,8 +145,8 @@ class LogsDataProcessor:
         additional_columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
         
         # always add concept_name to additional_columns for prefix processing
-        if "concept_name" not in self._additional_columns:
-            self._additional_columns.insert(0, "concept_name")
+        if "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
+            self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
@@ -256,7 +257,7 @@ class LogsDataProcessor:
         """
         
         task_string = task.value
-        all_cols = ["concept_name"] + self._additional_columns
+        all_cols = ["concept_name"] + [item for sublist in self._additional_columns.values() for item in sublist]
         
         
         # check whick columns have already processed files
