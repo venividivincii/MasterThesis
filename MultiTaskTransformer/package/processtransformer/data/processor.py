@@ -228,7 +228,6 @@ class LogsDataProcessor:
                                                 metadata[feature]["x_word_dict"],
                                                 metadata[feature]["y_word_dict"]
                                                 )
-            
             processed_df_split = pd.DataFrame(
                 {
                     'case_id': train_or_test_df['case_id'],
@@ -238,43 +237,11 @@ class LogsDataProcessor:
                     'Next-Feature': tokenized_next
                 }
             )
-            
             processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
         
-        
-        
         for feature in metadata:
-            
             store_processed_df_to_csv(feature, train_df, "train")
             store_processed_df_to_csv(feature, test_df, "test")
-            
-            
-            # x_word_dict = metadata[feature]["x_word_dict"]
-            # y_word_dict = metadata[feature]["y_word_dict"]
-                
-            # prefix_col = f"{feature}_prefix"
-            # train_prefix_df = train_df[prefix_col]
-            # test_prefix_df = test_df[prefix_col]
-
-            # train_tokenized_values, train_tokenized_next, train_padded_prefix, max_length_prefix = self._tokenize_and_pad_feature(train_prefix_df,
-            #                                             train_df[feature], train_df[f"{feature}_next-feature"], x_word_dict, y_word_dict)
-            
-            # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"), index=False)
-            
-            # train_df[feature] = train_tokenized_values
-            # train_df[f"{feature}_next-feature"] = train_tokenized_next
-            # train_df[prefix_col] = train_padded_prefix
-            
-            # test_tokenized_values, test_tokenized_next, test_padded_prefix, max_length_prefix = self._tokenize_and_pad_feature(test_prefix_df,
-            #                                             test_df[feature], test_df[f"{feature}_next-feature"], x_word_dict, y_word_dict, max_length_prefix)
-
-            # test_df[feature] = test_tokenized_values
-            # test_df[f"{feature}_next-feature"] = test_tokenized_next
-            # test_df[prefix_col] = test_padded_prefix
-            
-        
-        # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"), index=False)
-        # test_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"), index=False)
 
 
 
@@ -304,6 +271,7 @@ class LogsDataProcessor:
         # All preprocessing files exits
         if len(all_cols) == len(existing_cols):
             print("All processed files for current spec found. Preprocessing skipped.")
+            
         else:
             df = self._load_df(sort_temporally)
             
@@ -327,29 +295,3 @@ class LogsDataProcessor:
             # run preprocessing
             print("Preprocessing...")
             self._process_next_categorical(df, train_list, test_list, metadata)
-            
-        
-        # TODO: adapt checking
-        # Check if preprocessed csv files already exist for the given task
-        # if (os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
-        #     and os.path.isfile(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))):
-            
-        #     print(f"Preprocessed train-test split for task {task_string} found. Preprocessing skipped.")
-        # else:
-        #     print(f"No preprocessed train-test split for task {task_string} found. Preprocessing...")
-        
-        #     df = self._load_df(sort_temporally)
-        #     print(df.head)
-        #     metadata = self._extract_logs_metadata(df)
-        #     train_test_split_point = int(abs(df["case:concept:name"].nunique() * train_test_ratio))
-        #     train_list = df["case:concept:name"].unique()[:train_test_split_point]
-        #     test_list = df["case:concept:name"].unique()[train_test_split_point:]
-            
-        #     if task == Task.NEXT_CATEGORICAL:
-        #         self._process_next_categorical(df, train_list, test_list, metadata)
-        #     elif task == Task.NEXT_TIME:
-        #         self._process_next_time(df, train_list, test_list)
-        #     elif task == Task.REMAINING_TIME:
-        #         self._process_remaining_time(df, train_list, test_list)
-        #     else:
-        #         raise ValueError("Invalid task.")

@@ -5,11 +5,12 @@ import pandas as pd
 import tensorflow as tf
 from sklearn import utils
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 from ..constants import Task
 
 class LogsDataLoader:
-    def __init__(self, name: str, preprocessing_id, dir_path: str = "./datasets"):
+    def __init__(self, name: str, preprocessing_id, train_columns: List[str],
+                 target_columns: List[str], dir_path: str = "./datasets"):
         """Provides support for reading and pre-processing examples from processed logs.
 
         Args:
@@ -20,6 +21,8 @@ class LogsDataLoader:
         self.label_encoders = {}
         self.scalers = {}
         self._preprocessing_id = preprocessing_id
+        self.target_columns: List[str] = target_columns 
+        self.train_columns: List[str] = train_columns
 
     def _tokenize_and_pad(self, sequences, word_dict, max_length):
         tokenized = [[word_dict.get(word, 0) for word in seq.split()] for seq in sequences]
@@ -139,25 +142,41 @@ class LogsDataLoader:
         if task not in (Task.NEXT_CATEGORICAL, Task.NEXT_TIME, Task.REMAINING_TIME):
             raise ValueError("Invalid task.")
         
-        train_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))
-        test_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
+        # all features needed for training and prediction
+        features = list( set(self.train_columns + self.target_columns) )
+        print(features)
         
-        with open(os.path.join(self._dir_path, f"{self._preprocessing_id}_metadata.json"), "r") as json_file:
-            metadata = json.load(json_file)
+        train_dfs, test_dfs, word_dicts = {}, {}, {}
+        for feature in features:
+            train_dfs.update( {feature: pd.read_csv(os.path.join(self._dir_path, f"{feature}##train.csv"))} )
+            test_dfs.update( {feature: pd.read_csv(os.path.join(self._dir_path, f"{feature}##test.csv"))} )
+            with open(os.path.join(self._dir_path, f"{feature}##metadata.json"), "r") as json_file:
+                metadata = json.load(json_file)
+            # create dict with x_word_dict and y_word_dict for each feature
+            word_dicts.update( {feature:  {key: metadata[key] for key in ["x_word_dict", "y_word_dict"] if key in metadata}} )
         
-        # x_word_dict = metadata["x_word_dict"]
-        # y_word_dict = metadata["y_word_dict"]
-        x_word_dict = {key: value[f"{key}##x_word_dict"] for key, value in metadata.items()}
-        y_word_dict = {key: value[f"{key}##y_word_dict"] for key, value in metadata.items()}
-        max_case_length = self.get_max_case_length(train_df["concept_name_prefix"].values)
-        vocab_size_dict = {key: len(value) for key, value in x_word_dict.items()}
+        # train_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train.csv"))
+        # test_df = pd.read_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_test.csv"))
+        
+        # with open(os.path.join(self._dir_path, f"{self._preprocessing_id}_metadata.json"), "r") as json_file:
+        #     metadata = json.load(json_file)
+        
+        # x_word_dict = {key: value[f"{key}##x_word_dict"] for key, value in metadata.items()}
+        # y_word_dict = {key: value[f"{key}##y_word_dict"] for key, value in metadata.items()}
+        
+        max_case_length = 0
+        # max_case_length = self.get_max_case_length(train_df["concept_name_prefix"].values)
+        # vocab_size_dict = {key: len(value) for key, value in x_word_dict.items()}
+        vocab_size_dict = None
         
         # features in word_dict are categorical
-        categorical_features = x_word_dict.keys()
+        # categorical_features = x_word_dict.keys()
+        categorical_features = None
         # features not in word_dict are numerical
-        numerical_features = [col for col in train_df if col not in categorical_features]
+        # numerical_features = [col for col in train_df if col not in categorical_features]
+        numerical_features = None
             
         # vocab_size = len(x_word_dict)
         # total_classes = len(y_word_dict)
         
-        return train_df, test_df, x_word_dict, y_word_dict, max_case_length, vocab_size_dict, categorical_features, numerical_features
+        return train_dfs, test_dfs, word_dicts, max_case_length, vocab_size_dict, categorical_features, numerical_features
