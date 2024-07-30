@@ -92,8 +92,6 @@ class LogsDataProcessor:
         # else:
         #     columns = self._additional_columns
         columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
-        print("## COLUMNS ##")
-        print(columns)
         
         print("Coding Log Meta-Data...")
         coded_columns = {}
@@ -221,7 +219,7 @@ class LogsDataProcessor:
         
         # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
         
-        def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str): 
+        def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
 
             (tokenized_values,
              tokenized_next,
@@ -231,7 +229,8 @@ class LogsDataProcessor:
                                                 train_or_test_df[feature],
                                                 train_or_test_df[f"{feature}_next-feature"],
                                                 metadata[feature]["x_word_dict"],
-                                                metadata[feature]["y_word_dict"]
+                                                metadata[feature]["y_word_dict"],
+                                                max_length_prefix
                                                 )
             processed_df_split = pd.DataFrame(
                 {
@@ -243,10 +242,11 @@ class LogsDataProcessor:
                 }
             )
             processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
+            return max_length_prefix
         
         for feature in metadata:
-            store_processed_df_to_csv(feature, train_df, "train")
-            store_processed_df_to_csv(feature, test_df, "test")
+            max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
+            store_processed_df_to_csv(feature, test_df, "test", max_length_prefix)
 
 
 

@@ -74,9 +74,8 @@ class TokenAndPositionEmbedding(layers.Layer):
         return x + positions  # Combine token and position embeddings
 
 # TODO: vocab_size to list of vocab_sizesnum_classes_list
-def get_model(train_columns: List[str], target_columns: List[str], word_dict: Dict[str, Dict[str, int]], max_case_length: int,
-              vocab_size_dict: Dict[str, int], feature_type_dict: Dict[Feature_Type, List[str]],
-                               embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+def get_model(input_columns: List[str], target_columns: List[str], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
+              feature_type_dict: Dict[Feature_Type, List[str]], embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
     """
     Constructs the next categorical prediction model using a transformer architecture.
     
@@ -100,12 +99,12 @@ def get_model(train_columns: List[str], target_columns: List[str], word_dict: Di
 
     # Categorical Input layers
     categorical_inputs, categorical_feature_layers = [], []
-    for cat_feature in [ s for s in train_columns if s in feature_type_dict[Feature_Type.CATEGORICAL] ]:
+    for cat_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.CATEGORICAL] ]:
         # Input Layer for categorical feature
-        categorical_input = layers.Input(shape=(max_case_length,), name=cat_feature)
+        categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{cat_feature}")
         categorical_inputs.append(categorical_input)
         # Input embedding for categorical feature
-        categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dict[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
+        categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
         # Transformer Block for categorical feature
         categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb) )
     
@@ -133,8 +132,8 @@ def get_model(train_columns: List[str], target_columns: List[str], word_dict: Di
     # Output layers for categorical features
     outputs = []
     for target_col in target_columns:
-        output_dim = len(word_dict[target_col]["y_word_dict"])
-        outputs.append( layers.Dense(output_dim, activation="softmax", name=target_col)(x) )
+        output_dim = len(word_dicts[target_col]["y_word_dict"])
+        outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{target_col}")(x) )
     
     # Model definition
     transformer = Model(inputs=categorical_inputs, outputs=outputs, name="next_categorical_transformer")

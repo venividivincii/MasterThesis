@@ -6,10 +6,11 @@ import tensorflow as tf
 from sklearn import utils
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from typing import Dict, Tuple, Optional, List
+from numpy.typing import NDArray
 from ..constants import Task, Feature_Type
 
 class LogsDataLoader:
-    def __init__(self, name: str, train_columns: List[str],
+    def __init__(self, name: str, input_columns: List[str],
                  target_columns: List[str], dir_path: str = "./datasets"):
         """Provides support for reading and pre-processing examples from processed logs.
 
@@ -21,7 +22,7 @@ class LogsDataLoader:
         self.label_encoders = {}
         self.scalers = {}
         self.target_columns: List[str] = target_columns 
-        self.train_columns: List[str] = train_columns
+        self.input_columns: List[str] = input_columns
 
     def _tokenize_and_pad(self, sequences, word_dict, max_length):
         tokenized = [[word_dict.get(word, 0) for word in seq.split()] for seq in sequences]
@@ -145,7 +146,7 @@ class LogsDataLoader:
         print("Loading data from preprocessed train-test split...")
         
         # all features needed for training and prediction
-        features = list( set(self.train_columns + self.target_columns) )
+        features = list( set(self.input_columns + self.target_columns) )
         print(features)
         
         train_dfs, test_dfs, word_dicts, feature_type_dict = {}, {}, {}, {}
