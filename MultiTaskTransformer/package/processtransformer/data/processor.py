@@ -100,7 +100,7 @@ class LogsDataProcessor:
             classes = list(df[column].unique())
             keys = special_tokens + classes
             val = range(len(keys))
-            # TODO: write feature type in dict
+            # write feature type in dict
             for feature_type, col_list in self._additional_columns.items():
                 if column in col_list:
                     coded_feature = {"type": feature_type.value}
@@ -281,8 +281,14 @@ class LogsDataProcessor:
             df = self._load_df(sort_temporally)
             
             # always add concept_name to additional_columns
-            if "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
-                self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+            if ( len(self._additional_columns.values()) == 0
+                or "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
+                self._additional_columns = {**{Feature_Type.CATEGORICAL: "concept_name"}, **self._additional_columns}
+                
+            # elif "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
+            #     # self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+            #     self._additional_columns = {**{Feature_Type.CATEGORICAL: "concept_name"}, **self._additional_columns}
+                
             
             # No preprocessing files exist
             if len(existing_cols) == 0:

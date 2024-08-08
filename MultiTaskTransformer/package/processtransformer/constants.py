@@ -14,6 +14,7 @@ class Feature_Type(enum.Enum):
   
   CATEGORICAL = "categorical"
   NUMERICAL = "numerical"
+  TIMESTAMP = "timestamp"
   
   def get_member(value):
     for member in Feature_Type:
