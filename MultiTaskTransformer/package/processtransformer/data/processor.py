@@ -86,7 +86,7 @@ class LogsDataProcessor:
         special_tokens = ["[PAD]", "[UNK]"]
         
         # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
-        columns = [item for idx, item in enumerate(df.columns.tolist()) if idx%4==1]
+        columns = [item for idx, item in enumerate(df.columns.tolist()) if idx%5==1]
         # TODO:
         print(f"columns of _extract_logs_metadata: {columns}")
         
@@ -200,19 +200,19 @@ class LogsDataProcessor:
         #     feature_values = feature_values.iloc[:, 0]
 
         tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
-        tokenized_next = next_feature.apply(lambda x: y_next_word_dict.get(x, y_next_word_dict["[UNK]"]))
-        tokenized_last = last_feature.apply(lambda x: y_last_word_dict.get(x, y_last_word_dict["[UNK]"]))
+        tokenized_next = next_feature.apply(lambda y_next: y_next_word_dict.get(y_next, y_next_word_dict["[UNK]"]))
+        tokenized_last = last_feature.apply(lambda y_last: y_last_word_dict.get(y_last, y_last_word_dict["[UNK]"]))
 
         padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
 
-        return tokenized_values, tokenized_next, tokenized_last padded_prefix_str, max_length_prefix
+        return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
 
 
 
 
 
-    def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str], metadata: dict) -> None:
+    def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]):
         df_split = np.array_split(df, self._pool)
         
         with Pool(processes=self._pool) as pool:
@@ -231,13 +231,16 @@ class LogsDataProcessor:
 
             (tokenized_values,
              tokenized_next,
+             tokenized_last,
              padded_prefix,
              max_length_prefix
              ) = self._tokenize_and_pad_feature(train_or_test_df[f"{feature}_prefix"],
                                                 train_or_test_df[feature],
                                                 train_or_test_df[f"{feature}_next-feature"],
+                                                train_or_test_df[f"{feature}_last-feature"],
                                                 metadata[feature]["x_word_dict"],
-                                                metadata[feature]["y_word_dict"],
+                                                metadata[feature]["y_next_word_dict"],
+                                                metadata[feature]["y_last_word_dict"],
                                                 max_length_prefix
                                                 )
             processed_df_split = pd.DataFrame(
@@ -246,7 +249,8 @@ class LogsDataProcessor:
                     feature: tokenized_values,
                     'Prefix': padded_prefix,
                     'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
-                    'Next-Feature': tokenized_next
+                    'Next-Feature': tokenized_next,
+                    'Last-Feature': tokenized_last
                 }
             )
             processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
@@ -291,7 +295,10 @@ class LogsDataProcessor:
             # always add concept_name to additional_columns
             if ( len(self._additional_columns.values()) == 0
                 or "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
-                self._additional_columns = {**{Feature_Type.CATEGORICAL: "concept_name"}, **self._additional_columns}
+                if Feature_Type.CATEGORICAL in self._additional_columns:
+                    self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+                else:
+                    self._additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
                 
             # elif "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
             #     # self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
@@ -311,10 +318,10 @@ class LogsDataProcessor:
                 # drop existing features from preprocessing df
                 df = df.drop(existing_cols, axis=1)
                 
-            metadata = self._extract_logs_metadata(df)
+            # metadata = self._extract_logs_metadata(df)
             train_test_split_point = int(abs(df["case:concept:name"].nunique() * train_test_ratio))
             train_list = df["case:concept:name"].unique()[:train_test_split_point]
             test_list = df["case:concept:name"].unique()[train_test_split_point:]
             # run preprocessing
             print("Preprocessing...")
-            self._process_next_categorical(df, train_list, test_list, metadata)
+            self._process_next_categorical(df, train_list, test_list)
