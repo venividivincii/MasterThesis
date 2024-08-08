@@ -85,28 +85,32 @@ class LogsDataProcessor:
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
         special_tokens = ["[PAD]", "[UNK]"]
         
-        # print(self._org_columns)
-        # print(self._additional_columns)
-        # if "concept_name" not in self._additional_columns:
-        #     columns = ["concept_name"] + self._additional_columns
-        # else:
-        #     columns = self._additional_columns
-        columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
+        # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
+        columns = [item for idx, item in enumerate(df.columns.tolist()) if idx%4==1]
+        # TODO:
+        print(f"columns of _extract_logs_metadata: {columns}")
         
         print("Coding Log Meta-Data...")
         coded_columns = {}
         
         for column in tqdm(columns):
-            classes = list(df[column].unique())
-            keys = special_tokens + classes
-            val = range(len(keys))
+            # classes + special tokens for input data
+            keys_in = special_tokens + list(df[column].unique())
+            
+            # classes + special tokens for next-feature target
+            keys_out_next = ["[UNK]"] + list(df[f"{column}_next-feature"].unique())
+            
+            # classes + special tokens for last-feature target
+            keys_out_last = ["[UNK]"] + list(df[f"{column}_last-feature"].unique())
+            
             # write feature type in dict
             for feature_type, col_list in self._additional_columns.items():
                 if column in col_list:
                     coded_feature = {"type": feature_type.value}
                     break
-            coded_feature.update({"x_word_dict": dict(zip(keys, val))})
-            coded_feature.update({"y_word_dict": dict(zip(keys, range(len(keys))))})
+            coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))})
+            coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
+            coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
             coded_columns.update({column: coded_feature})
             print(f"Word dictionary for {column}: {coded_feature}")
             
@@ -132,6 +136,7 @@ class LogsDataProcessor:
         return [df[col].nunique() for col in self._additional_columns]
 
     
+
     # processes the column prefixes
     def _process_column_prefixes(self, df: pd.DataFrame) -> pd.DataFrame:
         """Helper function to process next categorical data for all additional columns.
@@ -146,14 +151,10 @@ class LogsDataProcessor:
         # additional_columns = self._additional_columns.copy()
         additional_columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
         
-        # # always add concept_name to additional_columns
-        # if "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
-        #     self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
-        
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
         for col in additional_columns:
-            processed_columns.extend([col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature"])
+            processed_columns.extend([col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
         
         processed_data = []
         unique_cases = df[case_id].unique()
@@ -168,14 +169,17 @@ class LogsDataProcessor:
                     prefix_list = cat[:i + 1]
                     prefix = " ".join(prefix_list)
                     next_cat = cat[i + 1]
-                    row.extend([original_value, prefix, i+1, next_cat])
+                    last_cat = cat[-1]
+                    row.extend([original_value, prefix, i+1, next_cat, last_cat])
                 processed_data.append(row)
         
         processed_df = pd.DataFrame(processed_data, columns=processed_columns)
         return processed_df
     
     
-    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series, x_word_dict: dict, y_word_dict: dict, max_length_prefix=None):
+    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series,
+                                  last_feature: pd.Series, x_word_dict: dict, y_next_word_dict: dict, y_last_word_dict: dict,
+                                  max_length_prefix=None):
 
         if isinstance(prefixes, pd.Series):
             prefixes = prefixes.to_frame()
@@ -196,12 +200,13 @@ class LogsDataProcessor:
         #     feature_values = feature_values.iloc[:, 0]
 
         tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
-        tokenized_next = next_feature.apply(lambda x: y_word_dict.get(x, y_word_dict["[UNK]"]))
+        tokenized_next = next_feature.apply(lambda x: y_next_word_dict.get(x, y_next_word_dict["[UNK]"]))
+        tokenized_last = last_feature.apply(lambda x: y_last_word_dict.get(x, y_last_word_dict["[UNK]"]))
 
         padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
 
-        return tokenized_values, tokenized_next, padded_prefix_str, max_length_prefix
+        return tokenized_values, tokenized_next, tokenized_last padded_prefix_str, max_length_prefix
 
 
 
@@ -212,6 +217,9 @@ class LogsDataProcessor:
         
         with Pool(processes=self._pool) as pool:
             processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
+        
+        # TODO: rewrite _extract_logs_metadata()
+        metadata = self._extract_logs_metadata(processed_df)
         
         train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
         test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
