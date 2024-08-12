@@ -87,8 +87,6 @@ class LogsDataProcessor:
         
         # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
         columns = [item for idx, item in enumerate(df.columns.tolist()) if idx%5==1]
-        # TODO:
-        print(f"columns of _extract_logs_metadata: {columns}")
         
         print("Coding Log Meta-Data...")
         coded_columns = {}
