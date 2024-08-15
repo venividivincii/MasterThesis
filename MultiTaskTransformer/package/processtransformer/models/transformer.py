@@ -81,11 +81,6 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     
     Args:
         max_case_length (int): Maximum length of the sequences (cases).
-        vocab_size (int): Size of the vocabulary.
-        output_dim (int): Number of output classes for the next categorical prediction.
-        num_categorical_features (int): Number of additional categorical features.
-        num_numerical_features (int): Number of additional numerical features.
-        num_classes_list (list): List containing the number of unique classes for each categorical feature.
         embed_dim (int): Dimensionality of the embeddings. Defaults to 36.
         num_heads (int): Number of attention heads. Defaults to 4.
         ff_dim (int): Dimensionality of the feed-forward layer. Defaults to 64.
@@ -107,12 +102,6 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
         # Transformer Block for categorical feature
         categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb) )
-    
-    # Token and position embedding for categorical features
-    # x_cat_list = []
-    # for idx, input in enumerate(categorical_inputs):
-    #     x_cat_feature = TokenAndPositionEmbedding(max_case_length, list(vocab_size_dict.values())[idx], embed_dim)(input)
-    #     x_cat_list.append( TransformerBlock(embed_dim, num_heads, ff_dim)(x_cat_feature) )
         
     # concat categorical feature layers
     x = layers.Concatenate()(categorical_feature_layers)
@@ -137,6 +126,8 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         else: raise ValueError("Target type is not known.")
         output_dim = len(word_dicts[target_col][dict_str])
         outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{target_col}")(x) )
+    
+    
     
     # Model definition
     transformer = Model(inputs=categorical_inputs, outputs=outputs, name="next_categorical_transformer")
