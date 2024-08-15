@@ -24,7 +24,7 @@ class TransformerBlock(layers.Layer):
         self.dropout1 = layers.Dropout(rate)
         self.dropout2 = layers.Dropout(rate)
 
-    def call(self, inputs, training):
+    def call(self, inputs, mask=None, training=False):
         """
         Forward pass for the transformer block.
         
@@ -93,11 +93,14 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
 
 
     # Categorical Input layers
-    categorical_inputs, categorical_feature_layers = [], []
+    categorical_inputs, categorical_feature_layers, masks = [], [], []
     for cat_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.CATEGORICAL] ]:
         # Input Layer for categorical feature
         categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{cat_feature}")
         categorical_inputs.append(categorical_input)
+        # Create mask based on input
+        mask = tf.cast(tf.math.not_equal(categorical_input, 0), tf.float32)[:, tf.newaxis, tf.newaxis, :]
+        masks.append(mask)
         # Input embedding for categorical feature
         categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
         # Transformer Block for categorical feature
