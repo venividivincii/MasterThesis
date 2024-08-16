@@ -67,7 +67,7 @@ class LogsDataLoader:
     
     
     # TODO: new method
-    def prepare_data( self, df: pd.DataFrame, max_case_length=False ) -> Tuple[dict, dict, int]:
+    def prepare_data( self, df: pd.DataFrame, max_case_length=False, shuffle=False ) -> Tuple[dict, dict, int]:
         x_token_dict, y_next_token_dict, y_last_token_dict = {}, {}, {}
         for idx, col in enumerate(df):
             # feature column
@@ -96,6 +96,36 @@ class LogsDataLoader:
                 y_last = np.array(y_last.tolist(), dtype=np.float32)
                 # update dict
                 y_last_token_dict.update({col_name: y_last})
+                
+                
+        # TODO: Shuffeling
+        if(shuffle):
+            # Create RandomState with seed
+            rng = np.random.RandomState(42)
+
+            # Generate random permutation of indices
+            num_samples = next(iter(x_token_dict.values())).shape[0]
+            shuffled_indices = rng.permutation(num_samples)
+
+            # initialize dicts
+            shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict = {}, {}, {}
+
+            # Shuffle x_token_dict using shuffled_indices
+            for feature, x_tokens in x_token_dict.items():
+                shuffled_x_token_dict[feature] = x_tokens[shuffled_indices]
+
+            # Shuffle y_next_token_dict using shuffled_indices
+            for feature, y_next_tokens in y_next_token_dict.items():
+                shuffled_y_next_token_dict[feature] = y_next_tokens[shuffled_indices]
+                
+            # Shuffle y_last_token_dict using shuffled_indices
+            for feature, y_last_tokens in y_last_token_dict.items():
+                shuffled_y_last_token_dict[feature] = y_last_tokens[shuffled_indices]
+            
+            # renaming and deleting
+            x_token_dict, y_next_token_dict, y_last_token_dict = (shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict)
+            del shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict
+        
                 
         if max_case_length:
             max_case_length = max( len(seq.split()) for seq in df["Prefix"].values )
