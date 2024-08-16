@@ -57,9 +57,9 @@ class LogsDataProcessor:
             raise ValueError("Unsupported file format. Please provide a .csv or .xes file.")
         
         df = df[self._org_columns + additional_cols]
-        df.columns = ["case:concept:name", "concept_name", "time:timestamp"] + additional_cols
+        df.columns = ["case:concept:name", "concept_name", "time_timestamp"] + additional_cols
         df["concept_name"] = df["concept_name"].str.lower().str.replace(" ", "-")
-        df["time:timestamp"] = pd.to_datetime(df["time:timestamp"].str.replace("/", "-"), format=self._datetime_format)
+        df["time_timestamp"] = pd.to_datetime(df["time_timestamp"].str.replace("/", "-"), format=self._datetime_format)
         
         for idx, org_column in enumerate(self._org_columns):
             # When additional_column is in org columns, set additional_column to org_column name
@@ -71,7 +71,7 @@ class LogsDataProcessor:
                     # replace in list of cols
                     additional_cols[additional_column] = df.columns[idx]
         if sort_temporally:
-            df.sort_values(by=["time:timestamp"], inplace=True)
+            df.sort_values(by=["time_timestamp"], inplace=True)
             
         # replace all " " in prefix-columns with "_"
         prefix_columns = additional_cols
@@ -85,7 +85,7 @@ class LogsDataProcessor:
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
         special_tokens = ["[PAD]", "[UNK]"]
         
-        # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
+        # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time_timestamp"]]
         columns = [item for idx, item in enumerate(df.columns.tolist()) if idx%5==1]
         
         print("Coding Log Meta-Data...")
@@ -147,7 +147,7 @@ class LogsDataProcessor:
         """
         case_id = "case:concept:name"
         # additional_columns = self._additional_columns.copy()
-        additional_columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time:timestamp"]]
+        additional_columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time_timestamp"]]
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
@@ -210,18 +210,18 @@ class LogsDataProcessor:
 
 
 
-    def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]):
-        df_split = np.array_split(df, self._pool)
+    # def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]):
+    #     df_split = np.array_split(df, self._pool)
         
-        with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
+    #     with Pool(processes=self._pool) as pool:
+    #         processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
         
-        # TODO: rewrite _extract_logs_metadata()
-        metadata = self._extract_logs_metadata(processed_df)
+    #     # rewrite _extract_logs_metadata()
+    #     metadata = self._extract_logs_metadata(processed_df)
         
-        train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
-        test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
-        del processed_df, df_split
+    #     train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
+    #     test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
+    #     del processed_df, df_split
         
         # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
         
@@ -322,4 +322,18 @@ class LogsDataProcessor:
             test_list = df["case:concept:name"].unique()[train_test_split_point:]
             # run preprocessing
             print("Preprocessing...")
-            self._process_next_categorical(df, train_list, test_list)
+            # self._process_next_categorical(df, train_list, test_list)
+            
+            # make splits for parallel processing
+            df_split = np.array_split(df, self._pool)
+            
+            # pooling for parallel processing
+            with Pool(processes=self._pool) as pool:
+                processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
+            
+            # rewrite _extract_logs_metadata()
+            metadata = self._extract_logs_metadata(processed_df)
+            
+            # write results in new dfs
+            train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
+            test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()

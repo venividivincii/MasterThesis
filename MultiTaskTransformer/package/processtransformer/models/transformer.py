@@ -35,7 +35,7 @@ class TransformerBlock(layers.Layer):
         Returns:
             tf.Tensor: Output tensor after applying self-attention and feed-forward network.
         """
-        attn_output = self.att(inputs, inputs)  # Self-attention
+        attn_output = self.att(inputs, inputs, attention_mask=mask)  # Self-attention
         attn_output = self.dropout1(attn_output, training=training)
         out1 = self.layernorm1(inputs + attn_output)  # Add & Norm
         ffn_output = self.ffn(out1)  # Feed-Forward Network
@@ -104,14 +104,14 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         # Input embedding for categorical feature
         categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
         # Transformer Block for categorical feature
-        categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb) )
+        categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb, mask=mask) )
         
     # concat categorical feature layers
     x = layers.Concatenate()(categorical_feature_layers)
     
     # Stacking multiple transformer blocks
     for _ in range(num_layers):
-        x = TransformerBlock(embed_dim*len(categorical_feature_layers), num_heads, ff_dim)(x)
+        x = TransformerBlock(embed_dim*len(categorical_feature_layers), num_heads, ff_dim)(x, mask=mask)
     
     # Global average pooling
     x = layers.GlobalAveragePooling1D()(x)
