@@ -1,4 +1,5 @@
 import os
+import re
 from tqdm import tqdm
 import json
 import pandas as pd
@@ -26,15 +27,35 @@ class LogsDataProcessor:
         """
         self._name = name
         self._filepath = filepath
-        self._org_columns = columns
-        # self._additional_columns = additional_columns if additional_columns else []
-        self._additional_columns = additional_columns
+        self._org_columns: List[str] = columns
+        self._additional_columns: Optional[Dict[Feature_Type, List[str]]] = additional_columns
         self._datetime_format = datetime_format
         self._pool = pool
 
         # Create directory for saving processed datasets
         self._dir_path = os.path.join('datasets', self._name, "processed")
         os.makedirs(self._dir_path, exist_ok=True)
+        
+        
+    def sanitize_filename(self, filename: str, replacement_char: str = '_') -> str:
+        # Define a regular expression pattern for invalid characters
+        invalid_chars_pattern = r'[<> :"/\\|?*]'
+
+        # Replace invalid characters with the specified replacement character
+        sanitized_filename = re.sub(invalid_chars_pattern, replacement_char, filename)
+
+        # Windows file names cannot end with a space or a period, or be named "CON", "PRN", "AUX", "NUL", "COM1" to "COM9", or "LPT1" to "LPT9"
+        reserved_names = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+        
+        # Strip trailing spaces or periods
+        sanitized_filename = sanitized_filename.rstrip(' .')
+
+        # Handle reserved names by appending an underscore
+        if sanitized_filename.upper() in reserved_names:
+            sanitized_filename += '_'
+            
+        return sanitized_filename
+        
 
     def _load_df(self, sort_temporally: bool = False) -> pd.DataFrame:
         """Loads and preprocesses the raw log data.
@@ -57,9 +78,20 @@ class LogsDataProcessor:
             raise ValueError("Unsupported file format. Please provide a .csv or .xes file.")
         
         df = df[self._org_columns + additional_cols]
-        df.columns = ["case:concept:name", "concept_name", "time_timestamp"] + additional_cols
+        # sanitize columns
+        self._org_columns = [self.sanitize_filename(col) for col in self._org_columns]
+        self._additional_columns = {feature_type: [self.sanitize_filename(feature) for feature in feature_lst] for feature_type,
+                                    feature_lst in self._additional_columns.items()
+                                    } if len(self._additional_columns)>0 else {}
+        additional_cols = [self.sanitize_filename(col) for col in additional_cols]
+        
+        df.columns = ["case_concept_name", "concept_name", "time_timestamp"] + additional_cols
         df["concept_name"] = df["concept_name"].str.lower().str.replace(" ", "-")
-        df["time_timestamp"] = pd.to_datetime(df["time_timestamp"].str.replace("/", "-"), format=self._datetime_format)
+        print(self._datetime_format)
+        if self._datetime_format == None:
+            df["time_timestamp"] = pd.to_datetime(df["time_timestamp"].str.replace("/", "-"), format='mixed')
+        else:
+            df["time_timestamp"] = pd.to_datetime(df["time_timestamp"].str.replace("/", "-"), format=self._datetime_format)
         
         for idx, org_column in enumerate(self._org_columns):
             # When additional_column is in org columns, set additional_column to org_column name
@@ -74,10 +106,10 @@ class LogsDataProcessor:
             df.sort_values(by=["time_timestamp"], inplace=True)
             
         # replace all " " in prefix-columns with "_"
-        prefix_columns = additional_cols
-        prefix_columns.insert(0, "concept_name")
-        for prefix_column in prefix_columns:
-            df[prefix_column] = df[prefix_column].str.replace(' ', '_')
+        # prefix_columns = additional_cols
+        # prefix_columns.insert(0, "concept_name")
+        # for prefix_column in prefix_columns:
+        #     df[prefix_column] = df[prefix_column].str.replace(' ', '_')
         
         return df
     
@@ -145,9 +177,9 @@ class LogsDataProcessor:
         Returns:
             pd.DataFrame: Processed dataframe.
         """
-        case_id = "case:concept:name"
+        case_id = "case_concept_name"
         # additional_columns = self._additional_columns.copy()
-        additional_columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time_timestamp"]]
+        additional_columns = [item for item in df.columns.tolist() if item not in ["case_concept_name", "time_timestamp"]]
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
@@ -210,20 +242,20 @@ class LogsDataProcessor:
 
 
 
-    # def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]):
-    #     df_split = np.array_split(df, self._pool)
+    def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]):
+        df_split = np.array_split(df, self._pool)
         
-    #     with Pool(processes=self._pool) as pool:
-    #         processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
+        with Pool(processes=self._pool) as pool:
+            processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
         
-    #     # rewrite _extract_logs_metadata()
-    #     metadata = self._extract_logs_metadata(processed_df)
+        # rewrite _extract_logs_metadata()
+        metadata = self._extract_logs_metadata(processed_df)
         
-    #     train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
-    #     test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
-    #     del processed_df, df_split
+        train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
+        test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
+        del processed_df, df_split
         
-        # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
+        train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
         
         def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
 
@@ -270,9 +302,8 @@ class LogsDataProcessor:
             train_test_ratio (float): Ratio for splitting training and testing data.
         """
         
-        task_string = task.value
-        
         all_cols = ["concept_name"] + [item for sublist in self._additional_columns.values() for item in sublist]
+        all_cols = [self.sanitize_filename(col) for col in all_cols]
         
         # check whick columns have already processed files
         existing_cols = []
@@ -311,21 +342,25 @@ class LogsDataProcessor:
                 print("Processed features found:")
                 print(existing_cols)
                 print("Excluding features for preprocessing.")
-                # always keep concept_name faeture
-                if 'concept_name' in existing_cols: existing_cols = existing_cols.remove('concept_name')
+                # TODO: always keep concept_name faeture
+                # if 'concept_name' in existing_cols: existing_cols = existing_cols.remove('concept_name')
+                if 'concept_name' in existing_cols: existing_cols.remove('concept_name')
                 # drop existing features from preprocessing df
                 df = df.drop(existing_cols, axis=1)
                 
             # metadata = self._extract_logs_metadata(df)
-            train_test_split_point = int(abs(df["case:concept:name"].nunique() * train_test_ratio))
-            train_list = df["case:concept:name"].unique()[:train_test_split_point]
-            test_list = df["case:concept:name"].unique()[train_test_split_point:]
+            train_test_split_point = int(abs(df["case_concept_name"].nunique() * train_test_ratio))
+            train_list = df["case_concept_name"].unique()[:train_test_split_point]
+            test_list = df["case_concept_name"].unique()[train_test_split_point:]
             # run preprocessing
             print("Preprocessing...")
             # self._process_next_categorical(df, train_list, test_list)
             
             # make splits for parallel processing
             df_split = np.array_split(df, self._pool)
+            
+            # TODO:
+            # print(df_split)
             
             # pooling for parallel processing
             with Pool(processes=self._pool) as pool:
@@ -337,3 +372,41 @@ class LogsDataProcessor:
             # write results in new dfs
             train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
             test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
+            # del dfs for memory
+            del processed_df, df_split
+        
+        
+            # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
+            
+            def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
+
+                (tokenized_values,
+                tokenized_next,
+                tokenized_last,
+                padded_prefix,
+                max_length_prefix
+                ) = self._tokenize_and_pad_feature(train_or_test_df[f"{feature}_prefix"],
+                                                    train_or_test_df[feature],
+                                                    train_or_test_df[f"{feature}_next-feature"],
+                                                    train_or_test_df[f"{feature}_last-feature"],
+                                                    metadata[feature]["x_word_dict"],
+                                                    metadata[feature]["y_next_word_dict"],
+                                                    metadata[feature]["y_last_word_dict"],
+                                                    max_length_prefix
+                                                    )
+                processed_df_split = pd.DataFrame(
+                    {
+                        'case_id': train_or_test_df['case_id'],
+                        feature: tokenized_values,
+                        'Prefix': padded_prefix,
+                        'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
+                        'Next-Feature': tokenized_next,
+                        'Last-Feature': tokenized_last
+                    }
+                )
+                processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
+                return max_length_prefix
+            
+            for feature in metadata:
+                max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
+                store_processed_df_to_csv(feature, test_df, "test", max_length_prefix)
