@@ -37,12 +37,19 @@ class LogsDataProcessor:
         os.makedirs(self._dir_path, exist_ok=True)
         
         
-    def sanitize_filename(self, filename: str, replacement_char: str = '_') -> str:
+    def sanitize_filename(self, filename: str, org_columns=None) -> str:
+        
+        if org_columns is not None:
+            new_org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
+            for idx, column in enumerate(org_columns):
+                if filename == column:
+                    return new_org_columns[idx]
+        
         # Define a regular expression pattern for invalid characters
         invalid_chars_pattern = r'[<> :"/\\|?*]'
 
         # Replace invalid characters with the specified replacement character
-        sanitized_filename = re.sub(invalid_chars_pattern, replacement_char, filename)
+        sanitized_filename = re.sub(invalid_chars_pattern, '_', filename)
 
         # Windows file names cannot end with a space or a period, or be named "CON", "PRN", "AUX", "NUL", "COM1" to "COM9", or "LPT1" to "LPT9"
         reserved_names = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
@@ -78,16 +85,23 @@ class LogsDataProcessor:
             raise ValueError("Unsupported file format. Please provide a .csv or .xes file.")
         
         df = df[self._org_columns + additional_cols]
+        
+        # print("before sanitation")
+        # print(f"self._org_columns: {self._org_columns}")
+        # print(f"self.additional_cols: {self._additional_columns}")
+        # print(f"additional_cols: {additional_cols}")
+        
         # sanitize columns
-        self._org_columns = [self.sanitize_filename(col) for col in self._org_columns]
-        self._additional_columns = {feature_type: [self.sanitize_filename(feature) for feature in feature_lst] for feature_type,
+        # self._org_columns = [self.sanitize_filename(col) for col in self._org_columns]
+        self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
+        self._additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
                                     feature_lst in self._additional_columns.items()
                                     } if len(self._additional_columns)>0 else {}
-        additional_cols = [self.sanitize_filename(col) for col in additional_cols]
+        additional_cols = [self.sanitize_filename(col, self._org_columns) for col in additional_cols]
         
         df.columns = ["case_concept_name", "concept_name", "time_timestamp"] + additional_cols
         df["concept_name"] = df["concept_name"].str.lower().str.replace(" ", "-")
-        print(self._datetime_format)
+        
         if self._datetime_format == None:
             df["time_timestamp"] = pd.to_datetime(df["time_timestamp"].str.replace("/", "-"), format='mixed')
         else:
@@ -106,10 +120,10 @@ class LogsDataProcessor:
             df.sort_values(by=["time_timestamp"], inplace=True)
             
         # replace all " " in prefix-columns with "_"
-        # prefix_columns = additional_cols
-        # prefix_columns.insert(0, "concept_name")
-        # for prefix_column in prefix_columns:
-        #     df[prefix_column] = df[prefix_column].str.replace(' ', '_')
+        prefix_columns = additional_cols
+        prefix_columns.insert(0, "concept_name")
+        for prefix_column in prefix_columns:
+            df[prefix_column] = df[prefix_column].str.replace(' ', '_')
         
         return df
     
@@ -328,6 +342,8 @@ class LogsDataProcessor:
                     self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
                 else:
                     self._additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
+                    
+            print(df)
                 
             # elif "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
             #     # self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
@@ -373,6 +389,8 @@ class LogsDataProcessor:
             train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
             test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
             # del dfs for memory
+            #TODO: debugging
+            processed_df.to_csv(os.path.join(self._dir_path, "debugging.csv"), index=False)
             del processed_df, df_split
         
         
