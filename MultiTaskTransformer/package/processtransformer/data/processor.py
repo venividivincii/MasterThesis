@@ -250,36 +250,64 @@ class LogsDataProcessor:
         return processed_df
     
     
-    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series,
-                                  last_feature: pd.Series, x_word_dict: dict, y_next_word_dict: dict, y_last_word_dict: dict,
-                                  max_length_prefix=None):
-
+    def _tokenize_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series,
+                     last_feature: pd.Series, x_word_dict: dict, y_next_word_dict: dict, y_last_word_dict: dict):
         if isinstance(prefixes, pd.Series):
             prefixes = prefixes.to_frame()
-
-        # if prefixes.shape[1] == 0:
-        #     raise ValueError("The 'prefixes' DataFrame must have at least one column.")
-
-        if max_length_prefix == None:
-            max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
 
         tokenized_prefix = []
         for seq in prefixes.iloc[:, 0]:
             tokenized_seq = [x_word_dict.get(word, x_word_dict["[UNK]"]) for word in str(seq).split()]
             tokenized_prefix.append(tokenized_seq)
 
-        # # Ensure feature_values is a single column Series
-        # if isinstance(feature_values, pd.DataFrame):
-        #     feature_values = feature_values.iloc[:, 0]
-
         tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
         tokenized_next = next_feature.apply(lambda y_next: y_next_word_dict.get(y_next, y_next_word_dict["[UNK]"]))
         tokenized_last = last_feature.apply(lambda y_last: y_last_word_dict.get(y_last, y_last_word_dict["[UNK]"]))
+        return tokenized_values, tokenized_next, tokenized_last, tokenized_prefix
+    
+    
+
+    def _pad_feature(self, tokenized_prefix, max_length_prefix=None):
+        if max_length_prefix is None:
+            max_length_prefix = max(len(seq) for seq in tokenized_prefix)
 
         padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
+        return padded_prefix_str, max_length_prefix
 
-        return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
+
+    
+    
+    # def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series,
+    #                               last_feature: pd.Series, x_word_dict: dict, y_next_word_dict: dict, y_last_word_dict: dict,
+    #                               max_length_prefix=None):
+
+    #     if isinstance(prefixes, pd.Series):
+    #         prefixes = prefixes.to_frame()
+
+    #     # if prefixes.shape[1] == 0:
+    #     #     raise ValueError("The 'prefixes' DataFrame must have at least one column.")
+
+    #     if max_length_prefix == None:
+    #         max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
+
+    #     tokenized_prefix = []
+    #     for seq in prefixes.iloc[:, 0]:
+    #         tokenized_seq = [x_word_dict.get(word, x_word_dict["[UNK]"]) for word in str(seq).split()]
+    #         tokenized_prefix.append(tokenized_seq)
+
+    #     # # Ensure feature_values is a single column Series
+    #     # if isinstance(feature_values, pd.DataFrame):
+    #     #     feature_values = feature_values.iloc[:, 0]
+
+    #     tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
+    #     tokenized_next = next_feature.apply(lambda y_next: y_next_word_dict.get(y_next, y_next_word_dict["[UNK]"]))
+    #     tokenized_last = last_feature.apply(lambda y_last: y_last_word_dict.get(y_last, y_last_word_dict["[UNK]"]))
+
+    #     padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
+    #     padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
+
+    #     return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
 
 
     def process_logs(self, train_test_ratio: float = 0.80) -> None:
@@ -379,19 +407,34 @@ class LogsDataProcessor:
             def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
 
                 (tokenized_values,
-                tokenized_next,
-                tokenized_last,
-                padded_prefix,
-                max_length_prefix
-                ) = self._tokenize_and_pad_feature(train_or_test_df[f"{feature}_prefix"],
-                                                    train_or_test_df[feature],
-                                                    train_or_test_df[f"{feature}_next-feature"],
-                                                    train_or_test_df[f"{feature}_last-feature"],
-                                                    metadata[feature]["x_word_dict"],
-                                                    metadata[feature]["y_next_word_dict"],
-                                                    metadata[feature]["y_last_word_dict"],
-                                                    max_length_prefix
-                                                    )
+                 tokenized_next,
+                 tokenized_last,
+                 tokenized_prefix
+                 )= self._tokenize_feature(  train_or_test_df[f"{feature}_prefix"],
+                                            train_or_test_df[feature],
+                                            train_or_test_df[f"{feature}_next-feature"],
+                                            train_or_test_df[f"{feature}_last-feature"],
+                                            metadata[feature]["x_word_dict"],
+                                            metadata[feature]["y_next_word_dict"],
+                                            metadata[feature]["y_last_word_dict"] )
+
+                padded_prefix, max_length_prefix = self._pad_feature(tokenized_prefix, max_length_prefix)
+
+
+                # (tokenized_values,
+                # tokenized_next,
+                # tokenized_last,
+                # padded_prefix,
+                # max_length_prefix
+                # ) = self._tokenize_and_pad_feature(train_or_test_df[f"{feature}_prefix"],
+                #                                     train_or_test_df[feature],
+                #                                     train_or_test_df[f"{feature}_next-feature"],
+                #                                     train_or_test_df[f"{feature}_last-feature"],
+                #                                     metadata[feature]["x_word_dict"],
+                #                                     metadata[feature]["y_next_word_dict"],
+                #                                     metadata[feature]["y_last_word_dict"],
+                #                                     max_length_prefix
+                #                                     )
                 processed_df_split = pd.DataFrame(
                     {
                         'case_id': train_or_test_df['case_id'],
