@@ -134,7 +134,7 @@ class LogsDataProcessor:
         return df
     
     # helper function that prepares the temporal features
-    def _prepare_temporal_features(self, df, day_of_week: bool = True, hour_of_day: bool = True):
+    def _prepare_temporal_feature(self, df, day_of_week: bool = True, hour_of_day: bool = True):
         # timestamp at index 1
         timestamp_column = df.columns[1]
         
@@ -153,6 +153,8 @@ class LogsDataProcessor:
         # replace timestamp column with time_passed column
         df[timestamp_column] = df[f"{timestamp_column}##time_passed"]
         df.drop(f"{timestamp_column}##time_passed", axis=1)
+        # drop case_id column
+        df.drop('case_concept_name', axis=1)
         
         return df
     
@@ -419,6 +421,19 @@ class LogsDataProcessor:
                 if 'concept_name' in existing_cols: existing_cols.remove('concept_name')
                 # drop existing features from preprocessing df
                 df = df.drop(existing_cols, axis=1)
+            
+            # prepare temp features
+            for feature_type, feature_lst in self._additional_columns.items():
+                if feature_type is Feature_Type.TIMESTAMP:
+                    for feature in feature_lst:
+                        prepared_temp_feature_df = self._prepare_temporal_feature(
+                                                                                df[feature],
+                                                                                self._temporal_features[Temporal_Feature.DAY_OF_WEEK],
+                                                                                self._temporal_features[Temporal_Feature.HOUR_OF_DAY] )
+                        # drop un-prepared temp feature
+                        df.drop(feature)
+                        # append prepared temp feature data to df
+                        df.append(prepared_temp_feature_df)
                 
             # metadata = self._extract_logs_metadata(df)
             train_test_split_point = int(abs(df["case_concept_name"].nunique() * train_test_ratio))
