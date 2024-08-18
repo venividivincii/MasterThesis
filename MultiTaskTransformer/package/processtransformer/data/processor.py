@@ -148,43 +148,70 @@ class LogsDataProcessor:
         
         return df
     
-        
+    # case_id, col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
-        special_tokens = ["[PAD]", "[UNK]"]
         
-        # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time_timestamp"]]
-        columns = [item for idx, item in enumerate(df.columns.tolist()) if idx%5==1]
+        # initialize coded columns for categorical features
+        coded_features = None
         
-        print("Coding Log Meta-Data...")
-        coded_columns = {}
-        
-        for column in tqdm(columns):
-            # classes + special tokens for input data
-            keys_in = special_tokens + list(df[column].unique())
+        for feature_type, feature_lst in self._additional_columns.items():
             
-            # classes + special tokens for next-feature target
-            keys_out_next = ["[UNK]"] + list(df[f"{column}_next-feature"].unique())
+            # Meta data for Categorical features
+            if feature_type is Feature_Type.CATEGORICAL:
+                print("Processing Categorical Features...")
+                
+                special_tokens = ["[PAD]", "[UNK]"]
             
-            # classes + special tokens for last-feature target
-            keys_out_last = ["[UNK]"] + list(df[f"{column}_last-feature"].unique())
-            
-            # write feature type in dict
-            for feature_type, col_list in self._additional_columns.items():
-                if column in col_list:
+                # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time_timestamp"]]
+                # columns = [item for idx, item in enumerate(df_categorical.columns.tolist()) if idx%5==1]
+                columns = feature_lst.copy()
+                for feature in feature_lst:
+                    columns.append(f"{feature}_next-feature")
+                    columns.append(f"{feature}_last-feature")
+                
+                df_categorical = df[columns]
+                # print(df_categorical)
+                
+                print("Coding categorical log Meta-Data...")
+                coded_features = {}
+                
+                for feature in feature_lst:
+                    # classes + special tokens for input data
+                    keys_in = special_tokens + list(df_categorical[feature].unique())
+                    
+                    # classes + special tokens for next-feature target
+                    keys_out_next = ["[UNK]"] + list(df_categorical[f"{feature}_next-feature"].unique())
+                    
+                    # classes + special tokens for last-feature target
+                    keys_out_last = ["[UNK]"] + list(df_categorical[f"{feature}_last-feature"].unique())
+                    
+                    # write feature type in dict
+                    # for feature_type, col_list in self._additional_columns.items():
+                    #     if column in col_list:
+                    #         coded_feature = {"type": feature_type.value}
+                    #         break
+                    
                     coded_feature = {"type": feature_type.value}
-                    break
-            coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))})
-            coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
-            coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
-            coded_columns.update({column: coded_feature})
-            # print(f"Word dictionary for {column}: {coded_feature}")
-            
-            # Store each column's metadata in a separate JSON file
-            coded_json = json.dumps(coded_feature)
-            with open(os.path.join(self._dir_path, f"{column}##metadata.json"), "w") as metadata_file:
-                metadata_file.write(coded_json)
+                    coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))})
+                    coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
+                    coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
+                    coded_features.update({feature: coded_feature})
+                    print(f"Word dictionary for {feature}: {coded_feature}")
+                    
+                    # Store each feature's metadata in a separate JSON file
+                    coded_json = json.dumps(coded_feature)
+                    with open(os.path.join(self._dir_path, f"{feature}##metadata.json"), "w") as metadata_file:
+                        metadata_file.write(coded_json)
+                   
+            # Meta data for Numerical feature  
+            if feature_type is Feature_Type.NUMERICAL:
+                print("Processing Numerical Features...")
+            # Meta data for Timestamp features
+            if feature_type is Feature_Type.TIMESTAMP:
+                print("Processing Timestamp Features...")
         
-        return coded_columns
+        
+        return coded_features
 
 
     
@@ -336,8 +363,7 @@ class LogsDataProcessor:
         else:
             df = self._load_df()
             
-            
-            # TODO: always add concept_name to additional_columns
+            # always add concept_name to additional_columns
             if ( Feature_Type.CATEGORICAL in self._additional_columns
                 and "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
                     self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
@@ -389,10 +415,12 @@ class LogsDataProcessor:
             
             
             # pooling for parallel processing
+            print("Processing feature prefixes...")
             with Pool(processes=self._pool) as pool:
                 processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
             
             # rewrite _extract_logs_metadata()
+            print("Extracting log metadata")
             metadata = self._extract_logs_metadata(processed_df)
             
             # write results in new dfs
@@ -448,6 +476,7 @@ class LogsDataProcessor:
                 processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                 return max_length_prefix
             
+            print("Writing results in csv-files...")
             for feature in metadata:
                 max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
                 store_processed_df_to_csv(feature, test_df, "test", max_length_prefix)
