@@ -95,13 +95,13 @@ class LogsDataProcessor:
         # print(f"additional_cols: {additional_cols}")
         
         # sanitize columns
-        self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
         self._additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
                                     feature_lst in self._additional_columns.items()
                                     } if len(self._additional_columns)>0 else {}
         self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
         self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
         additional_cols = [self.sanitize_filename(col, self._org_columns) for col in additional_cols]
+        self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
         
         df.columns = ["case_concept_name", "concept_name", "time_timestamp"] + additional_cols
         df["concept_name"] = df["concept_name"].str.lower().str.replace(" ", "-")

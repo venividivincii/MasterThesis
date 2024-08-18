@@ -89,8 +89,15 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     Returns:
         tf.keras.Model: Compiled transformer model for next categorical prediction.
     """
-    print("Creating model...")
+    # global average pooling with mask
+    def masked_global_avg_pool(x, mask):
+        mask = tf.cast(mask, dtype=tf.float32)  # Ensure mask is of type float32
+        mask = tf.squeeze(mask, axis=[1, 2])  # Remove the extra dimensions, making mask shape [batch_size, sequence_length]
+        mask = tf.expand_dims(mask, axis=-1)  # Expand the mask to shape [batch_size, sequence_length, 1]
+        x *= mask  # Now x and mask have compatible shapes for element-wise multiplication
+        return tf.reduce_sum(x, axis=1) / tf.reduce_sum(mask, axis=1)  # Aggregate along the sequence length
 
+    print("Creating model...")
 
     # Categorical Input layers
     categorical_inputs, categorical_feature_layers, masks = [], [], []
@@ -114,7 +121,8 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         x = TransformerBlock(embed_dim*len(categorical_feature_layers), num_heads, ff_dim)(x, mask=mask)
     
     # Global average pooling
-    x = layers.GlobalAveragePooling1D()(x)
+    x = masked_global_avg_pool(x, mask)
+    # x = layers.GlobalAveragePooling1D()(x)
     
     # Fully connected layers
     x = layers.Dropout(0.1)(x)
