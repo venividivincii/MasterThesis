@@ -139,7 +139,9 @@ class LogsDataProcessor:
         timestamp_column = df.columns[1]
         
         # Calculate the time passed since the first timestamp for each case_concept_name
-        df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(lambda x: x - x.min())
+        # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(lambda x: x - x.min())
+        df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
+            lambda x: (x - x.min()).dt.total_seconds().astype(np.float32) )
         
         # Add day_of_week
         if day_of_week:
@@ -147,6 +149,10 @@ class LogsDataProcessor:
         # Add hour_of_day
         if hour_of_day:
             df[f"{timestamp_column}##hour_of_day"] = df[timestamp_column].dt.hour
+        
+        # replace timestamp column with time_passed column
+        df[timestamp_column] = df[f"{timestamp_column}##time_passed"]
+        df.drop(f"{timestamp_column}##time_passed", axis=1)
         
         return df
     
@@ -429,17 +435,17 @@ class LogsDataProcessor:
             # pooling for parallel processing
             print("Processing feature prefixes...")
             with Pool(processes=self._pool) as pool:
-                processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
+                processed_prefix_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
             
             # rewrite _extract_logs_metadata()
             print("Extracting log metadata")
-            metadata = self._extract_logs_metadata(processed_df)
+            metadata = self._extract_logs_metadata(processed_prefix_df)
             
             # write results in new dfs
-            train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
-            test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
+            train_df = processed_prefix_df[processed_prefix_df["case_id"].isin(train_list)].copy()
+            test_df = processed_prefix_df[processed_prefix_df["case_id"].isin(test_list)].copy()
             # del dfs for memory
-            del processed_df, df_split
+            del processed_prefix_df, df_split
         
         
             # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
@@ -449,7 +455,9 @@ class LogsDataProcessor:
                 for feature_type, feature_lst in self._additional_columns.items():
                     if feature in feature_lst: break
                     
+                # Categorical Feature
                 if feature_type is Feature_Type.CATEGORICAL:
+                    # Tokenize values
                     (feature_values,
                     next_feature,
                     last_feature,
@@ -461,30 +469,80 @@ class LogsDataProcessor:
                                                 metadata[feature]["x_word_dict"],
                                                 metadata[feature]["y_next_word_dict"],
                                                 metadata[feature]["y_last_word_dict"] )
-                else:
-                    feature_values = train_or_test_df[feature]
-                    next_feature = train_or_test_df[f"{feature}_next-feature"]
-                    last_feature = train_or_test_df[f"{feature}_last-feature"]
-                    prefix = train_or_test_df[f"{feature}_prefix"]
+                    # Pad feature prefix
+                    padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
+                    # build df for storage
+                    processed_df = pd.DataFrame(
+                        {
+                            'case_id': train_or_test_df['case_id'],
+                            feature: feature_values,
+                            'Prefix': padded_prefix,
+                            'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
+                            'Next-Feature': next_feature,
+                            'Last-Feature': last_feature
+                        }
+                    )
+                    # safe df to csv
+                    processed_df.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
+                    
+                # Temporal Feature
+                elif feature_type is Feature_Type.TIMESTAMP:
+                    def process_timestamp(col_str: str, max_length_prefix):
+                        # access feature data
+                        processed_col_lst = []
+                        processed_col_lst.append( train_or_test_df[f"{col_str}"]  )
+                        processed_col_lst.append( train_or_test_df[f"{col_str}_next-feature"] )
+                        processed_col_lst.append( train_or_test_df[f"{col_str}_last-feature"] )
+                        prefix = train_or_test_df[f"{col_str}_prefix"]
+                        
+                        # Pad feature prefix
+                        padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
+                        processed_col_lst.append( padded_prefix )
+                        return {col_str: processed_col_lst}, max_length_prefix
+                    
+                    def build_storage_df(col_str, col_lst):
+                        return {
+                            col_str: col_lst[0],
+                            f"{col_str}##Prefix": col_lst[3],
+                            f"{col_str}##Prefix Length": train_or_test_df[f"{feature}_prefix-length"],
+                            f"{col_str}##Next-Feature": col_lst[1],
+                            f"{col_str}##Last-Feature": col_lst[2]
+                        }
+                    
+                    # process temporal feature
+                    feature_lst, max_length_prefix = process_timestamp(feature, max_length_prefix)
+                    
+                    # initialize storage dict
+                    storage_dict = { 'case_id': train_or_test_df['case_id'] }
+                    # update storage dict with time delta data
+                    storage_dict.update( build_storage_df(feature, feature_lst) )
+                    
+                    # process additional temporal day_of_week feature
+                    if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
+                        day_of_week_lst, max_length_prefix = process_timestamp(f"{feature}##day_of_week", max_length_prefix)
+                        # update storage dict with additional day_of_week data
+                        storage_dict.update( build_storage_df("day_of_week", day_of_week_lst) )
+                        
+                    # process additional temporal time_of_day feature
+                    if self._temporal_features[Temporal_Feature.TIME_OF_DAY]:
+                        time_of_day_lst, max_length_prefix = process_timestamp(f"{feature}##time_of_day", max_length_prefix)
+                        # update storage dict with additional day_of_week data
+                        storage_dict.update( build_storage_df("time_of_day", time_of_day_lst) )
+                        
+                    
+                    # build df for storage
+                    processed_df = pd.DataFrame(storage_dict)
+                    # safe df to csv
+                    processed_df.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                     
                     
-                padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
-
-                processed_df_split = pd.DataFrame(
-                    {
-                        'case_id': train_or_test_df['case_id'],
-                        feature: feature_values,
-                        'Prefix': padded_prefix,
-                        'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
-                        'Next-Feature': next_feature,
-                        'Last-Feature': last_feature
-                    }
-                )
-                processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                 return max_length_prefix
             
             
             print("Writing results in csv-files...")
-            for feature in [item for sublist in self._additional_columns.values() for item in sublist]:
-                max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
+            for idx, feature in enumerate([item for sublist in self._additional_columns.values() for item in sublist]):
+                # only calculate max_length_prefix once
+                if idx == 0:
+                    max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
+                else: store_processed_df_to_csv(feature, train_df, "train", max_length_prefix)
                 store_processed_df_to_csv(feature, test_df, "test", max_length_prefix)
