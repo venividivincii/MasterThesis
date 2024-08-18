@@ -8,12 +8,13 @@ from multiprocessing import Pool
 from typing import List, Optional, Dict
 import pm4py
 import tensorflow as tf
-from ..constants import Feature_Type, Target
+from ..constants import Feature_Type, Target, Temporal_Feature
 
 class LogsDataProcessor:
     def __init__(self, name: str, filepath: str, columns: List[str],
                  input_columns: List[str],
                  target_columns: Dict[str, Target],
+                 temporal_features: Dict[Temporal_Feature, bool],
                  additional_columns: Optional[Dict[Feature_Type, List[str]]] = None,
                  datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
                  pool: int = 1):
@@ -33,7 +34,8 @@ class LogsDataProcessor:
         self._additional_columns: Optional[Dict[Feature_Type, List[str]]] = additional_columns
         self._input_columns: List[str] = input_columns
         self._target_columns: Dict[str, Target] = target_columns
-        self._datetime_format = datetime_format
+        self._datetime_format: str = datetime_format
+        self._temporal_features: Dict[Temporal_Feature, bool] = temporal_features
         self._pool = pool
 
         # Create directory for saving processed datasets

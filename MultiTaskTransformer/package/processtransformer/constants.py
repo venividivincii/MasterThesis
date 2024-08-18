@@ -27,3 +27,17 @@ class Target(enum.Enum):
         if member.value == value:
             return member
     raise ValueError(f"'{value}' is not a valid value for {Target.__name__}")
+  
+  
+@enum.unique
+class Temporal_Feature(enum.Enum):
+  """Look up for temporal features."""
+  
+  DAY_OF_WEEK = "day_of_week"
+  HOUR_OF_DAY = "hour_of_day"
+  
+  def get_member(value):
+    for member in Temporal_Feature:
+        if member.value == value:
+            return member
+    raise ValueError(f"'{value}' is not a valid value for {Temporal_Feature.__name__}")
