@@ -206,10 +206,20 @@ class LogsDataProcessor:
             # Meta data for Numerical feature  
             if feature_type is Feature_Type.NUMERICAL:
                 print("Processing Numerical Features...")
+                # Store each feature's metadata in a separate JSON file
+                for feature in feature_lst:
+                    coded_json = json.dumps({"type": feature_type.value})
+                    with open(os.path.join(self._dir_path, f"{feature}##metadata.json"), "w") as metadata_file:
+                        metadata_file.write(coded_json)
+                    
             # Meta data for Timestamp features
             if feature_type is Feature_Type.TIMESTAMP:
                 print("Processing Timestamp Features...")
-        
+                # Store each feature's metadata in a separate JSON file
+                for feature in feature_lst:
+                    coded_json = json.dumps({"type": feature_type.value})
+                    with open(os.path.join(self._dir_path, f"{feature}##metadata.json"), "w") as metadata_file:
+                        metadata_file.write(coded_json)
         
         return coded_features
 
@@ -433,50 +443,46 @@ class LogsDataProcessor:
             # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
             
             def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
+                
+                for feature_type, feature_lst in self._additional_columns.items():
+                    if feature in feature_lst: break
+                    
+                if feature_type is Feature_Type.CATEGORICAL:
+                    (feature_values,
+                    next_feature,
+                    last_feature,
+                    prefix
+                    )= self._tokenize_feature(  train_or_test_df[f"{feature}_prefix"],
+                                                train_or_test_df[feature],
+                                                train_or_test_df[f"{feature}_next-feature"],
+                                                train_or_test_df[f"{feature}_last-feature"],
+                                                metadata[feature]["x_word_dict"],
+                                                metadata[feature]["y_next_word_dict"],
+                                                metadata[feature]["y_last_word_dict"] )
+                else:
+                    feature_values = train_or_test_df[feature]
+                    next_feature = train_or_test_df[f"{feature}_next-feature"]
+                    last_feature = train_or_test_df[f"{feature}_last-feature"]
+                    prefix = train_or_test_df[f"{feature}_prefix"]
+                    
+                    
+                padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
 
-                (tokenized_values,
-                 tokenized_next,
-                 tokenized_last,
-                 tokenized_prefix
-                 )= self._tokenize_feature(  train_or_test_df[f"{feature}_prefix"],
-                                            train_or_test_df[feature],
-                                            train_or_test_df[f"{feature}_next-feature"],
-                                            train_or_test_df[f"{feature}_last-feature"],
-                                            metadata[feature]["x_word_dict"],
-                                            metadata[feature]["y_next_word_dict"],
-                                            metadata[feature]["y_last_word_dict"] )
-
-                padded_prefix, max_length_prefix = self._pad_feature(tokenized_prefix, max_length_prefix)
-
-
-                # (tokenized_values,
-                # tokenized_next,
-                # tokenized_last,
-                # padded_prefix,
-                # max_length_prefix
-                # ) = self._tokenize_and_pad_feature(train_or_test_df[f"{feature}_prefix"],
-                #                                     train_or_test_df[feature],
-                #                                     train_or_test_df[f"{feature}_next-feature"],
-                #                                     train_or_test_df[f"{feature}_last-feature"],
-                #                                     metadata[feature]["x_word_dict"],
-                #                                     metadata[feature]["y_next_word_dict"],
-                #                                     metadata[feature]["y_last_word_dict"],
-                #                                     max_length_prefix
-                #                                     )
                 processed_df_split = pd.DataFrame(
                     {
                         'case_id': train_or_test_df['case_id'],
-                        feature: tokenized_values,
+                        feature: feature_values,
                         'Prefix': padded_prefix,
                         'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
-                        'Next-Feature': tokenized_next,
-                        'Last-Feature': tokenized_last
+                        'Next-Feature': next_feature,
+                        'Last-Feature': last_feature
                     }
                 )
                 processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                 return max_length_prefix
             
+            
             print("Writing results in csv-files...")
-            for feature in metadata:
+            for feature in [item for sublist in self._additional_columns.values() for item in sublist]:
                 max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
                 store_processed_df_to_csv(feature, test_df, "test", max_length_prefix)
