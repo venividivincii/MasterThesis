@@ -68,7 +68,7 @@ class LogsDataProcessor:
         return sanitized_filename
         
 
-    def _load_df(self, sort_temporally: bool = False) -> pd.DataFrame:
+    def _load_df(self, sort_temporally: bool = True) -> pd.DataFrame:
         """Loads and preprocesses the raw log data.
 
         Args:
@@ -122,7 +122,7 @@ class LogsDataProcessor:
                     # replace in list of cols
                     additional_cols[additional_column] = df.columns[idx]
         if sort_temporally:
-            df.sort_values(by=["time_timestamp"], inplace=True)
+            df.sort_values(by=["case_concept_name", "time_timestamp"], inplace=True)
             
         # replace all " " in prefix-columns with "_"
         prefix_columns = additional_cols
@@ -192,7 +192,7 @@ class LogsDataProcessor:
 
     # processes the column prefixes
     def _process_column_prefixes(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Helper function to process next categorical data for all additional columns.
+        """Helper function to process data for all additional columns.
 
         Args:
             df (pd.DataFrame): Input dataframe.
@@ -262,60 +262,6 @@ class LogsDataProcessor:
         return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
 
 
-
-
-
-    def _process_next_categorical(self, df: pd.DataFrame, train_list: List[str], test_list: List[str]):
-        df_split = np.array_split(df, self._pool)
-        
-        with Pool(processes=self._pool) as pool:
-            processed_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
-        
-        # rewrite _extract_logs_metadata()
-        metadata = self._extract_logs_metadata(processed_df)
-        
-        train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
-        test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
-        del processed_df, df_split
-        
-        train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
-        
-        def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
-
-            (tokenized_values,
-             tokenized_next,
-             tokenized_last,
-             padded_prefix,
-             max_length_prefix
-             ) = self._tokenize_and_pad_feature(train_or_test_df[f"{feature}_prefix"],
-                                                train_or_test_df[feature],
-                                                train_or_test_df[f"{feature}_next-feature"],
-                                                train_or_test_df[f"{feature}_last-feature"],
-                                                metadata[feature]["x_word_dict"],
-                                                metadata[feature]["y_next_word_dict"],
-                                                metadata[feature]["y_last_word_dict"],
-                                                max_length_prefix
-                                                )
-            processed_df_split = pd.DataFrame(
-                {
-                    'case_id': train_or_test_df['case_id'],
-                    feature: tokenized_values,
-                    'Prefix': padded_prefix,
-                    'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
-                    'Next-Feature': tokenized_next,
-                    'Last-Feature': tokenized_last
-                }
-            )
-            processed_df_split.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
-            return max_length_prefix
-        
-        for feature in metadata:
-            max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
-            store_processed_df_to_csv(feature, test_df, "test", max_length_prefix)
-
-
-
-
     def process_logs(self, sort_temporally: bool = False, train_test_ratio: float = 0.80) -> None:
         """Processes logs.
 
@@ -343,19 +289,30 @@ class LogsDataProcessor:
         else:
             df = self._load_df(sort_temporally)
             
-            # always add concept_name to additional_columns
-            if ( len(self._additional_columns.values()) == 0
-                or "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
-                if Feature_Type.CATEGORICAL in self._additional_columns:
+            
+            # TODO: always add concept_name to additional_columns
+            if ( Feature_Type.CATEGORICAL in self._additional_columns
+                and "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
                     self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
-                else:
-                    self._additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
-                    
-            print(df)
+            else: self._additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
+            
+            # if timestamp in input or target columns, add it to additional columns
+            if ( "time_timestamp" in self._input_columns
+                or "time_timestamp" in self._target_columns):
                 
-            # elif "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL]:
-            #     # self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
-            #     self._additional_columns = {**{Feature_Type.CATEGORICAL: "concept_name"}, **self._additional_columns}
+                if ( Feature_Type.TIMESTAMP in self._additional_columns
+                and "time_timestamp" not in self._additional_columns[Feature_Type.TIMESTAMP] ):
+                    self._additional_columns[Feature_Type.TIMESTAMP].insert("time_timestamp")
+                else: self._additional_columns[Feature_Type.TIMESTAMP] = ["time_timestamp"]
+            
+            
+            # # always add concept_name to additional_columns
+            # if ( len(self._additional_columns.values()) == 0
+            #     or "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
+            #     if Feature_Type.CATEGORICAL in self._additional_columns:
+            #         self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+            #     else:
+            #         self._additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
                 
             
             # No preprocessing files exist
@@ -383,8 +340,6 @@ class LogsDataProcessor:
             # make splits for parallel processing
             df_split = np.array_split(df, self._pool)
             
-            # TODO:
-            # print(df_split)
             
             # pooling for parallel processing
             with Pool(processes=self._pool) as pool:
