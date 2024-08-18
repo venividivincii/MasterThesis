@@ -215,6 +215,15 @@ class LogsDataProcessor:
         case_id = "case_concept_name"
         additional_columns = [item for sublist in self._additional_columns.values() for item in sublist]
         
+        # if exist, append day_of_week and hour_of_day to additional_columns
+        if Feature_Type.TIMESTAMP in self._additional_columns:
+            time_features = self._additional_columns[Feature_Type.TIMESTAMP]
+            for feature in time_features:
+                day_of_week = f"{feature}##day_of_week"
+                hour_of_day = f"{feature}##hour_of_day"
+                if day_of_week in df.columns: additional_columns.append(day_of_week)
+                if hour_of_day in df.columns: additional_columns.append(hour_of_day)
+        
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
         for col in additional_columns:
