@@ -8,10 +8,12 @@ from multiprocessing import Pool
 from typing import List, Optional, Dict
 import pm4py
 import tensorflow as tf
-from ..constants import Task, Feature_Type
+from ..constants import Feature_Type, Target
 
 class LogsDataProcessor:
     def __init__(self, name: str, filepath: str, columns: List[str],
+                 input_columns: List[str],
+                 target_columns: Dict[str, Target],
                  additional_columns: Optional[Dict[Feature_Type, List[str]]] = None,
                  datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
                  pool: int = 1):
@@ -29,6 +31,8 @@ class LogsDataProcessor:
         self._filepath = filepath
         self._org_columns: List[str] = columns
         self._additional_columns: Optional[Dict[Feature_Type, List[str]]] = additional_columns
+        self._input_columns: List[str] = input_columns
+        self._target_columns: Dict[str, Target] = target_columns
         self._datetime_format = datetime_format
         self._pool = pool
 
@@ -92,11 +96,12 @@ class LogsDataProcessor:
         # print(f"additional_cols: {additional_cols}")
         
         # sanitize columns
-        # self._org_columns = [self.sanitize_filename(col) for col in self._org_columns]
         self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
         self._additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
                                     feature_lst in self._additional_columns.items()
                                     } if len(self._additional_columns)>0 else {}
+        self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
+        self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
         additional_cols = [self.sanitize_filename(col, self._org_columns) for col in additional_cols]
         
         df.columns = ["case_concept_name", "concept_name", "time_timestamp"] + additional_cols
@@ -126,6 +131,10 @@ class LogsDataProcessor:
             df[prefix_column] = df[prefix_column].str.replace(' ', '_')
         
         return df
+    
+    # helper function that prepares the temporal features
+    def _prepare_temporal_features(self):
+        ...
     
         
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
@@ -307,11 +316,10 @@ class LogsDataProcessor:
 
 
 
-    def process_logs(self, task: Task, sort_temporally: bool = False, train_test_ratio: float = 0.80) -> None:
-        """Processes logs for a given task.
+    def process_logs(self, sort_temporally: bool = False, train_test_ratio: float = 0.80) -> None:
+        """Processes logs.
 
         Args:
-            task (Task): The prediction task.
             sort_temporally (bool): Whether to sort the logs temporally.
             train_test_ratio (float): Ratio for splitting training and testing data.
         """
@@ -389,8 +397,6 @@ class LogsDataProcessor:
             train_df = processed_df[processed_df["case_id"].isin(train_list)].copy()
             test_df = processed_df[processed_df["case_id"].isin(test_list)].copy()
             # del dfs for memory
-            #TODO: debugging
-            processed_df.to_csv(os.path.join(self._dir_path, "debugging.csv"), index=False)
             del processed_df, df_split
         
         

@@ -89,7 +89,7 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     Returns:
         tf.keras.Model: Compiled transformer model for next categorical prediction.
     """
-    print("Creating model for task next_categorical...")
+    print("Creating model...")
 
 
     # Categorical Input layers

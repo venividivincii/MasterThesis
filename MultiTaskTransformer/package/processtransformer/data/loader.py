@@ -7,7 +7,7 @@ from sklearn import utils
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from typing import Dict, Tuple, Optional, List
 from numpy.typing import NDArray
-from ..constants import Task, Feature_Type, Target
+from ..constants import Feature_Type, Target
 
 class LogsDataLoader:
     def __init__(self, name: str, input_columns: List[str],
@@ -152,7 +152,6 @@ class LogsDataLoader:
         """Loads preprocessed train-test split data.
 
         Args:
-            task (Task): The prediction task.
 
         Returns:
             Tuple[pd.DataFrame, pd.DataFrame, Dict[str, int], Dict[str, int], int, int, int]: Loaded data and metadata.
