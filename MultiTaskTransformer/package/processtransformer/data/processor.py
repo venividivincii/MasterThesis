@@ -68,11 +68,10 @@ class LogsDataProcessor:
         return sanitized_filename
         
 
-    def _load_df(self, sort_temporally: bool = True) -> pd.DataFrame:
+    def _load_df(self) -> pd.DataFrame:
         """Loads and preprocesses the raw log data.
 
         Args:
-            sort_temporally (bool): Whether to sort the dataframe temporally.
 
         Returns:
             pd.DataFrame: Loaded dataframe.
@@ -121,8 +120,8 @@ class LogsDataProcessor:
                         self._additional_columns[key] = [df.columns[idx] if item == additional_column else item for item in value_list]
                     # replace in list of cols
                     additional_cols[additional_column] = df.columns[idx]
-        if sort_temporally:
-            df.sort_values(by=["case_concept_name", "time_timestamp"], inplace=True)
+        # sort temporally:
+        df.sort_values(by=["case_concept_name", "time_timestamp"], inplace=True)
             
         # replace all " " in prefix-columns with "_"
         prefix_columns = additional_cols
@@ -133,8 +132,21 @@ class LogsDataProcessor:
         return df
     
     # helper function that prepares the temporal features
-    def _prepare_temporal_features(self):
-        ...
+    def _prepare_temporal_features(self, df, day_of_week: bool = True, hour_of_day: bool = True):
+        # timestamp at index 1
+        timestamp_column = df.columns[1]
+        
+        # Calculate the time passed since the first timestamp for each case_concept_name
+        df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(lambda x: x - x.min())
+        
+        # Add day_of_week
+        if day_of_week:
+            df[f"{timestamp_column}##day_of_week"] = df[timestamp_column].dt.weekday
+        # Add hour_of_day
+        if hour_of_day:
+            df[f"{timestamp_column}##hour_of_day"] = df[timestamp_column].dt.hour
+        
+        return df
     
         
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
@@ -165,7 +177,7 @@ class LogsDataProcessor:
             coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
             coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
             coded_columns.update({column: coded_feature})
-            print(f"Word dictionary for {column}: {coded_feature}")
+            # print(f"Word dictionary for {column}: {coded_feature}")
             
             # Store each column's metadata in a separate JSON file
             coded_json = json.dumps(coded_feature)
@@ -201,8 +213,7 @@ class LogsDataProcessor:
             pd.DataFrame: Processed dataframe.
         """
         case_id = "case_concept_name"
-        # additional_columns = self._additional_columns.copy()
-        additional_columns = [item for item in df.columns.tolist() if item not in ["case_concept_name", "time_timestamp"]]
+        additional_columns = [item for sublist in self._additional_columns.values() for item in sublist]
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id"]
@@ -262,11 +273,10 @@ class LogsDataProcessor:
         return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
 
 
-    def process_logs(self, sort_temporally: bool = False, train_test_ratio: float = 0.80) -> None:
+    def process_logs(self, train_test_ratio: float = 0.80) -> None:
         """Processes logs.
 
         Args:
-            sort_temporally (bool): Whether to sort the logs temporally.
             train_test_ratio (float): Ratio for splitting training and testing data.
         """
         
@@ -287,7 +297,7 @@ class LogsDataProcessor:
             print("All processed files for current spec found. Preprocessing skipped.")
             
         else:
-            df = self._load_df(sort_temporally)
+            df = self._load_df()
             
             
             # TODO: always add concept_name to additional_columns
