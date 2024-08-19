@@ -139,22 +139,24 @@ class LogsDataProcessor:
         timestamp_column = df.columns[1]
         
         # Calculate the time passed since the first timestamp for each case_concept_name
+        # added offset of +1 to distinguish from padding tokens
         # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(lambda x: x - x.min())
         df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
-            lambda x: (x - x.min()).dt.total_seconds().astype(np.float32) )
+            lambda x: ((x - x.min()).dt.total_seconds().astype(int) + 1).astype(str)
+        )
         
         # Add day_of_week
         if day_of_week:
-            df[f"{timestamp_column}##day_of_week"] = df[timestamp_column].dt.weekday
+            df[f"{timestamp_column}##day_of_week"] = df[timestamp_column].dt.weekday.astype(str)
         # Add hour_of_day
         if hour_of_day:
-            df[f"{timestamp_column}##hour_of_day"] = df[timestamp_column].dt.hour
+            df[f"{timestamp_column}##hour_of_day"] = df[timestamp_column].dt.hour.astype(str)
         
         # replace timestamp column with time_passed column
         df[timestamp_column] = df[f"{timestamp_column}##time_passed"]
-        df.drop(f"{timestamp_column}##time_passed", axis=1)
+        df.drop(f"{timestamp_column}##time_passed", axis=1, inplace=True)
         # drop case_id column
-        df.drop('case_concept_name', axis=1)
+        df.drop('case_concept_name', axis=1, inplace=True)
         
         return df
     
@@ -276,6 +278,7 @@ class LogsDataProcessor:
         for col in additional_columns:
             processed_columns.extend([col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
         
+        
         processed_data = []
         unique_cases = df[case_id].unique()
         
@@ -288,10 +291,12 @@ class LogsDataProcessor:
                     cat = case_df[col].to_list()
                     prefix_list = cat[:i + 1]
                     prefix = " ".join(prefix_list)
+                    # prefix = " ".join([str(item) for item in prefix_list])
                     next_cat = cat[i + 1]
                     last_cat = cat[-1]
                     row.extend([original_value, prefix, i+1, next_cat, last_cat])
                 processed_data.append(row)
+            
         
         processed_df = pd.DataFrame(processed_data, columns=processed_columns)
         return processed_df
@@ -314,11 +319,16 @@ class LogsDataProcessor:
     
     
 
-    def _pad_feature(self, tokenized_prefix, max_length_prefix=None):
+    def _pad_feature(self, prefix, max_length_prefix=None):
         if max_length_prefix is None:
-            max_length_prefix = max(len(seq) for seq in tokenized_prefix)
+            max_length_prefix = max(len(seq) for seq in prefix)
+            
+        print("max_length_prefix")
+        print(max_length_prefix)
+        print("prefix")
+        print(prefix)
 
-        padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
+        padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
         return padded_prefix_str, max_length_prefix
 
@@ -420,20 +430,24 @@ class LogsDataProcessor:
                 # if 'concept_name' in existing_cols: existing_cols = existing_cols.remove('concept_name')
                 if 'concept_name' in existing_cols: existing_cols.remove('concept_name')
                 # drop existing features from preprocessing df
-                df = df.drop(existing_cols, axis=1)
+                df = df.drop(existing_cols, axis=1, inplace=True)
             
             # prepare temp features
             for feature_type, feature_lst in self._additional_columns.items():
                 if feature_type is Feature_Type.TIMESTAMP:
                     for feature in feature_lst:
                         prepared_temp_feature_df = self._prepare_temporal_feature(
-                                                                                df[feature],
+                                                                                df[["case_concept_name", feature]],
                                                                                 self._temporal_features[Temporal_Feature.DAY_OF_WEEK],
                                                                                 self._temporal_features[Temporal_Feature.HOUR_OF_DAY] )
                         # drop un-prepared temp feature
-                        df.drop(feature)
+                        df.drop(feature, axis=1, inplace=True)
+                        
+                        print(df)
+                        print(prepared_temp_feature_df)
                         # append prepared temp feature data to df
-                        df.append(prepared_temp_feature_df)
+                        df = pd.concat([df, prepared_temp_feature_df], axis=1)
+                        print(df)
                 
             # metadata = self._extract_logs_metadata(df)
             train_test_split_point = int(abs(df["case_concept_name"].nunique() * train_test_ratio))
@@ -446,6 +460,9 @@ class LogsDataProcessor:
             # make splits for parallel processing
             df_split = np.array_split(df, self._pool)
             
+            # TODO:
+            print(df)
+            print(df.dtypes)
             
             # pooling for parallel processing
             print("Processing feature prefixes...")
@@ -510,7 +527,9 @@ class LogsDataProcessor:
                         processed_col_lst.append( train_or_test_df[f"{col_str}_last-feature"] )
                         prefix = train_or_test_df[f"{col_str}_prefix"]
                         
-                        # Pad feature prefix
+                        # TODO: Pad feature prefix
+                        print(f"prefix for: {col_str}")
+                        print(prefix)
                         padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
                         processed_col_lst.append( padded_prefix )
                         return {col_str: processed_col_lst}, max_length_prefix
