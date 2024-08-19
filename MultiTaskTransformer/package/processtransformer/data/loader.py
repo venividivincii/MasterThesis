@@ -7,11 +7,12 @@ from sklearn import utils
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from typing import Dict, Tuple, Optional, List
 from numpy.typing import NDArray
-from ..constants import Feature_Type, Target
+from ..constants import Feature_Type, Target, Temporal_Feature
 
 class LogsDataLoader:
     def __init__(self, name: str, input_columns: List[str],
-                 target_columns: Dict[str, Target], dir_path: str = "./datasets"):
+                 target_columns: Dict[str, Target], temporal_features: Dict[Temporal_Feature, bool],
+                 dir_path: str = "./datasets"):
         """Provides support for reading and pre-processing examples from processed logs.
 
         Args:
@@ -23,12 +24,9 @@ class LogsDataLoader:
         self.scalers = {}
         self.target_columns: Dict[str, Target] = target_columns 
         self.input_columns: List[str] = input_columns
+        self._temporal_features: Dict[Temporal_Feature, bool] = temporal_features
 
-    def _tokenize_and_pad(self, sequences, word_dict, max_length):
-        tokenized = [[word_dict.get(word, 0) for word in seq.split()] for seq in sequences]
-        padded = tf.keras.preprocessing.sequence.pad_sequences(tokenized, maxlen=max_length)
-        return np.array(padded, dtype=np.float32)
-
+    # TODO: depreciated --> delete later
     def _process_additional_features(self, df: pd.DataFrame, fit: bool = True) -> Tuple[np.ndarray, int, int]:
         categorical_features = []
         numerical_features = []
@@ -132,20 +130,6 @@ class LogsDataLoader:
             return x_token_dict, y_next_token_dict, y_last_token_dict, max_case_length
         else:
             return x_token_dict, y_next_token_dict, y_last_token_dict
-        
-    
-
-    def get_max_case_length(self, train_x: np.ndarray) -> int:
-        """Gets the maximum length of cases for padding.
-
-        Args:
-            train_x (np.ndarray): Training sequences.
-
-        Returns:
-            int: Maximum length of the sequences.
-        """
-        return max(len(seq.split()) for seq in train_x)
-
 
 
     def load_data(self) -> Tuple[ Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, Dict[str, int]], Dict[Feature_Type, List[str]] ]:
