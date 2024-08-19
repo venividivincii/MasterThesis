@@ -31,7 +31,7 @@ class LogsDataProcessor:
         self._name = name
         self._filepath = filepath
         self._org_columns: List[str] = columns
-        self._additional_columns: Optional[Dict[Feature_Type, List[str]]] = additional_columns
+        self.additional_columns: Optional[Dict[Feature_Type, List[str]]] = additional_columns
         self._input_columns: List[str] = input_columns
         self._target_columns: Dict[str, Target] = target_columns
         self._datetime_format: str = datetime_format
@@ -79,7 +79,7 @@ class LogsDataProcessor:
             pd.DataFrame: Loaded dataframe.
         """
         filepath = os.path.join(os.path.dirname(self._dir_path), self._filepath)
-        additional_cols = [item for sublist in self._additional_columns.values() for item in sublist]
+        additional_cols = [item for sublist in self.additional_columns.values() for item in sublist]
         
         print("Parsing Event-Log...")
         if filepath.endswith('.csv'):
@@ -92,9 +92,9 @@ class LogsDataProcessor:
         df = df[self._org_columns + additional_cols]
         
         # sanitize columns
-        self._additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
-                                    feature_lst in self._additional_columns.items()
-                                    } if len(self._additional_columns)>0 else {}
+        self.additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
+                                    feature_lst in self.additional_columns.items()
+                                    } if len(self.additional_columns)>0 else {}
         self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
         self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
         additional_cols = [self.sanitize_filename(col, self._org_columns) for col in additional_cols]
@@ -113,8 +113,8 @@ class LogsDataProcessor:
             for additional_column in additional_cols:
                 if additional_column == org_column:
                     # replace in feature dict
-                    for key, value_list in self._additional_columns.items():
-                        self._additional_columns[key] = [df.columns[idx] if item == additional_column else item for item in value_list]
+                    for key, value_list in self.additional_columns.items():
+                        self.additional_columns[key] = [df.columns[idx] if item == additional_column else item for item in value_list]
                     # replace in list of cols
                     additional_cols[additional_column] = df.columns[idx]
         # sort temporally:
@@ -161,7 +161,7 @@ class LogsDataProcessor:
         # initialize coded columns for categorical features
         coded_features = None
         
-        for feature_type, feature_lst in self._additional_columns.items():
+        for feature_type, feature_lst in self.additional_columns.items():
             
             # Meta data for Categorical features
             if feature_type is Feature_Type.CATEGORICAL:
@@ -192,7 +192,7 @@ class LogsDataProcessor:
                     keys_out_last = ["[UNK]"] + list(df_categorical[f"{feature}_last-feature"].unique())
                     
                     # write feature type in dict
-                    # for feature_type, col_list in self._additional_columns.items():
+                    # for feature_type, col_list in self.additional_columns.items():
                     #     if column in col_list:
                     #         coded_feature = {"type": feature_type.value}
                     #         break
@@ -241,7 +241,7 @@ class LogsDataProcessor:
         Returns:
             List[int]: List of unique classes for each categorical column.
         """
-        return [df[col].nunique() for col in self._additional_columns]
+        return [df[col].nunique() for col in self.additional_columns]
 
     
 
@@ -256,11 +256,11 @@ class LogsDataProcessor:
             pd.DataFrame: Processed dataframe.
         """
         case_id = "case_concept_name"
-        additional_columns = [item for sublist in self._additional_columns.values() for item in sublist]
+        additional_columns = [item for sublist in self.additional_columns.values() for item in sublist]
         
         # if exist, append day_of_week and hour_of_day to additional_columns
-        if Feature_Type.TIMESTAMP in self._additional_columns:
-            time_features = self._additional_columns[Feature_Type.TIMESTAMP]
+        if Feature_Type.TIMESTAMP in self.additional_columns:
+            time_features = self.additional_columns[Feature_Type.TIMESTAMP]
             for feature in time_features:
                 day_of_week = f"{feature}##day_of_week"
                 hour_of_day = f"{feature}##hour_of_day"
@@ -363,7 +363,7 @@ class LogsDataProcessor:
             train_test_ratio (float): Ratio for splitting training and testing data.
         """
         
-        all_cols = ["concept_name"] + [item for sublist in self._additional_columns.values() for item in sublist]
+        all_cols = ["concept_name"] + [item for sublist in self.additional_columns.values() for item in sublist]
         all_cols = [self.sanitize_filename(col) for col in all_cols]
         
         # check whick columns have already processed files
@@ -383,28 +383,28 @@ class LogsDataProcessor:
             df = self._load_df()
             
             # always add concept_name to additional_columns
-            if ( Feature_Type.CATEGORICAL in self._additional_columns
-                and "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
-                    self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
-            else: self._additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
+            if ( Feature_Type.CATEGORICAL in self.additional_columns
+                and "concept_name" not in self.additional_columns[Feature_Type.CATEGORICAL] ):
+                    self.additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+            else: self.additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
             
             # if timestamp in input or target columns, add it to additional columns
             if ( "time_timestamp" in self._input_columns
                 or "time_timestamp" in self._target_columns):
                 
-                if ( Feature_Type.TIMESTAMP in self._additional_columns
-                and "time_timestamp" not in self._additional_columns[Feature_Type.TIMESTAMP] ):
-                    self._additional_columns[Feature_Type.TIMESTAMP].insert("time_timestamp")
-                else: self._additional_columns[Feature_Type.TIMESTAMP] = ["time_timestamp"]
+                if ( Feature_Type.TIMESTAMP in self.additional_columns
+                and "time_timestamp" not in self.additional_columns[Feature_Type.TIMESTAMP] ):
+                    self.additional_columns[Feature_Type.TIMESTAMP].insert("time_timestamp")
+                else: self.additional_columns[Feature_Type.TIMESTAMP] = ["time_timestamp"]
             
             
             # # always add concept_name to additional_columns
-            # if ( len(self._additional_columns.values()) == 0
-            #     or "concept_name" not in self._additional_columns[Feature_Type.CATEGORICAL] ):
-            #     if Feature_Type.CATEGORICAL in self._additional_columns:
-            #         self._additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+            # if ( len(self.additional_columns.values()) == 0
+            #     or "concept_name" not in self.additional_columns[Feature_Type.CATEGORICAL] ):
+            #     if Feature_Type.CATEGORICAL in self.additional_columns:
+            #         self.additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
             #     else:
-            #         self._additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
+            #         self.additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
                 
             
             # No preprocessing files exist
@@ -419,10 +419,10 @@ class LogsDataProcessor:
                 # if 'concept_name' in existing_cols: existing_cols = existing_cols.remove('concept_name')
                 if 'concept_name' in existing_cols: existing_cols.remove('concept_name')
                 # drop existing features from preprocessing df
-                df = df.drop(existing_cols, axis=1, inplace=True)
+                df.drop(existing_cols, axis=1, inplace=True)
             
             # prepare temp features
-            for feature_type, feature_lst in self._additional_columns.items():
+            for feature_type, feature_lst in self.additional_columns.items():
                 if feature_type is Feature_Type.TIMESTAMP:
                     for feature in feature_lst:
                         prepared_temp_feature_df = self._prepare_temporal_feature(
@@ -472,7 +472,7 @@ class LogsDataProcessor:
             
             def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
                 
-                for feature_type, feature_lst in self._additional_columns.items():
+                for feature_type, feature_lst in self.additional_columns.items():
                     if feature in feature_lst: break
                     
                 # Categorical Feature
@@ -562,7 +562,7 @@ class LogsDataProcessor:
             
             
             print("Writing results in csv-files...")
-            for idx, feature in enumerate([item for sublist in self._additional_columns.values() for item in sublist]):
+            for idx, feature in enumerate([item for sublist in self.additional_columns.values() for item in sublist]):
                 # only calculate max_length_prefix once
                 if idx == 0:
                     max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")

@@ -22,9 +22,10 @@ class LogsDataLoader:
         self._dir_path = f"{dir_path}/{name}/processed"
         self.label_encoders = {}
         self.scalers = {}
-        self.target_columns: Dict[str, Target] = target_columns 
+        self.target_columns: Dict[str, Target] = target_columns
         self.input_columns: List[str] = input_columns
         self._temporal_features: Dict[Temporal_Feature, bool] = temporal_features
+        self._feature_type_dict: Dict[ Feature_Type, List[str] ] = None
 
     # TODO: depreciated --> delete later
     def _process_additional_features(self, df: pd.DataFrame, fit: bool = True) -> Tuple[np.ndarray, int, int]:
@@ -65,71 +66,121 @@ class LogsDataLoader:
     
     
     # TODO: new method
-    def prepare_data( self, df: pd.DataFrame, max_case_length=False, shuffle=False ) -> Tuple[dict, dict, int]:
-        x_token_dict, y_next_token_dict, y_last_token_dict = {}, {}, {}
-        for idx, col in enumerate(df):
-            # feature column
-            if idx == 1:
-                col_name = col
-            # feature-prefix column
-            elif idx == 2:
-                x = df.iloc[:, idx]
-                # Convert each string of numbers to a list of integers
-                x = x.apply(lambda x: [float(num) for num in x.split()])
-                # Convert to NumPy array of type np.float32
-                x = np.array(x.tolist(), dtype=np.float32)
-                # update dict
-                x_token_dict.update( {col_name: x} )
-            # next-feature column
-            elif idx  == 4:
-                y_next = df.iloc[:, idx]
-                # Convert to NumPy array of type np.float32
-                y_next = np.array(y_next.tolist(), dtype=np.float32)
-                # update dict
-                y_next_token_dict.update({col_name: y_next})
-            # last-feature column
-            elif idx  == 5:
-                y_last = df.iloc[:, idx]
-                # Convert to NumPy array of type np.float32
-                y_last = np.array(y_last.tolist(), dtype=np.float32)
-                # update dict
-                y_last_token_dict.update({col_name: y_last})
+    def prepare_data( self, feature: str, df: pd.DataFrame, max_case_length=False) -> Tuple[dict, dict, int]:
+        def prepare_prefixes(col_name: str):
+            # Convert each string of numbers to a list of floats
+            prefix = df[col_name].apply(lambda x: [float(num) for num in x.split()])
+            # Convert to NumPy array of type np.float32
+            return np.array(prefix.tolist(), dtype=np.float32)
+        
+        def prepare_labels(col_name: str):
+            # get label column
+            labels = df[col_name]
+            # Convert to NumPy array of type np.float32
+            return np.array(labels.tolist(), dtype=np.float32)
+            
+        # feature = df.columns[1]
+        
+        # determine feature_type of feature
+        for feature_type, feature_lst in self._feature_type_dict.items():
+            if feature in feature_lst: break
+            
+        # check, if feature is input column
+        if feature in self.input_columns: is_input = True
+        else: is_input = False
+        
+        # check, if feature is target column
+        target_col = None
+        for target_feature, target in self.target_columns.items():
+            if feature == target_feature:
+                target_col = target
+                break
+            
+        # if feature is categorical
+        if feature_type is Feature_Type.CATEGORICAL:
+            # initialize dicts
+            x_token_dict, y_token_dict = {}, {}
+            
+            # if feature is a input col
+            if is_input:
+                x_token_dict.update({ feature: prepare_prefixes(col_name="Prefix") })
+                
+            # if feature is a target col
+            if target_col == Target.NEXT_FEATURE:
+                y_token_dict.update({ feature: prepare_labels(col_name="Next-Feature") })
+            elif target_col == Target.LAST_FEATURE:
+                y_token_dict.update({ feature: prepare_labels(col_name="Last-Feature") })
+        
+        
+        
+        
+        
+        
+        # x_token_dict, y_next_token_dict, y_last_token_dict = {}, {}, {}
+        
+        # for idx, col in enumerate(df):
+        #     # feature column
+        #     if idx == 1:
+        #         feature = col
+        #     # feature-prefix column
+        #     elif idx == 2:
+        #         x = df.iloc[:, idx]
+        #         # Convert each string of numbers to a list of integers
+        #         x = x.apply(lambda x: [float(num) for num in x.split()])
+        #         # Convert to NumPy array of type np.float32
+        #         x = np.array(x.tolist(), dtype=np.float32)
+        #         # update dict
+        #         x_token_dict.update( {feature: x} )
+        #     # next-feature column
+        #     elif idx  == 4:
+        #         y_next = df.iloc[:, idx]
+        #         # Convert to NumPy array of type np.float32
+        #         y_next = np.array(y_next.tolist(), dtype=np.float32)
+        #         # update dict
+        #         y_next_token_dict.update({feature: y_next})
+        #     # last-feature column
+        #     elif idx  == 5:
+        #         y_last = df.iloc[:, idx]
+        #         # Convert to NumPy array of type np.float32
+        #         y_last = np.array(y_last.tolist(), dtype=np.float32)
+        #         # update dict
+        #         y_last_token_dict.update({feature: y_last})
                 
                 
         # TODO: Shuffeling
-        if(shuffle):
-            # Create RandomState with seed
-            rng = np.random.RandomState(42)
+        # if(shuffle):
+        #     # Create RandomState with seed
+        #     rng = np.random.RandomState(42)
 
-            # Generate random permutation of indices
-            num_samples = next(iter(x_token_dict.values())).shape[0]
-            shuffled_indices = rng.permutation(num_samples)
+        #     # Generate random permutation of indices
+        #     num_samples = next(iter(x_token_dict.values())).shape[0]
+        #     shuffled_indices = rng.permutation(num_samples)
 
-            # initialize dicts
-            shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict = {}, {}, {}
+        #     # initialize dicts
+        #     shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict = {}, {}, {}
 
-            # Shuffle x_token_dict using shuffled_indices
-            for feature, x_tokens in x_token_dict.items():
-                shuffled_x_token_dict[feature] = x_tokens[shuffled_indices]
+        #     # Shuffle x_token_dict using shuffled_indices
+        #     for feature, x_tokens in x_token_dict.items():
+        #         shuffled_x_token_dict[feature] = x_tokens[shuffled_indices]
 
-            # Shuffle y_next_token_dict using shuffled_indices
-            for feature, y_next_tokens in y_next_token_dict.items():
-                shuffled_y_next_token_dict[feature] = y_next_tokens[shuffled_indices]
+        #     # Shuffle y_next_token_dict using shuffled_indices
+        #     for feature, y_next_tokens in y_next_token_dict.items():
+        #         shuffled_y_next_token_dict[feature] = y_next_tokens[shuffled_indices]
                 
-            # Shuffle y_last_token_dict using shuffled_indices
-            for feature, y_last_tokens in y_last_token_dict.items():
-                shuffled_y_last_token_dict[feature] = y_last_tokens[shuffled_indices]
+        #     # Shuffle y_last_token_dict using shuffled_indices
+        #     for feature, y_last_tokens in y_last_token_dict.items():
+        #         shuffled_y_last_token_dict[feature] = y_last_tokens[shuffled_indices]
             
-            # renaming and deleting
-            x_token_dict, y_next_token_dict, y_last_token_dict = (shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict)
-            del shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict
+        #     # renaming and deleting
+        #     x_token_dict, y_next_token_dict, y_last_token_dict = (shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict)
+        #     del shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict
         
                 
         if max_case_length:
             max_case_length = max( len(seq.split()) for seq in df["Prefix"].values )
-            return x_token_dict, y_next_token_dict, y_last_token_dict, max_case_length
+            return x_token_dict, y_token_dict, max_case_length
         else:
-            return x_token_dict, y_next_token_dict, y_last_token_dict
+            return x_token_dict, y_token_dict
 
 
     def load_data(self) -> Tuple[ Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, Dict[str, int]], Dict[Feature_Type, List[str]] ]:
@@ -167,5 +218,6 @@ class LogsDataLoader:
                 feature_type_dict.update( {feature_type: [feature]} )
             else:
                 feature_type_dict[feature_type].append(feature)
+            self._feature_type_dict = feature_type_dict
         
         return train_dfs, test_dfs, word_dicts, feature_type_dict
