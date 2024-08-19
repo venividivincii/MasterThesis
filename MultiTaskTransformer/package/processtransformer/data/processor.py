@@ -91,11 +91,6 @@ class LogsDataProcessor:
         
         df = df[self._org_columns + additional_cols]
         
-        # print("before sanitation")
-        # print(f"self._org_columns: {self._org_columns}")
-        # print(f"self.additional_cols: {self._additional_columns}")
-        # print(f"additional_cols: {additional_cols}")
-        
         # sanitize columns
         self._additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
                                     feature_lst in self._additional_columns.items()
@@ -182,7 +177,6 @@ class LogsDataProcessor:
                     columns.append(f"{feature}_last-feature")
                 
                 df_categorical = df[columns]
-                # print(df_categorical)
                 
                 print("Coding categorical log Meta-Data...")
                 coded_features = {}
@@ -208,7 +202,7 @@ class LogsDataProcessor:
                     coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
                     coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
                     coded_features.update({feature: coded_feature})
-                    print(f"Word dictionary for {feature}: {coded_feature}")
+                    # print(f"Word dictionary for {feature}: {coded_feature}")
                     
                     # Store each feature's metadata in a separate JSON file
                     coded_json = json.dumps(coded_feature)
@@ -322,11 +316,6 @@ class LogsDataProcessor:
     def _pad_feature(self, prefix, max_length_prefix=None):
         if max_length_prefix is None:
             max_length_prefix = max(len(seq) for seq in prefix)
-            
-        print("max_length_prefix")
-        print(max_length_prefix)
-        print("prefix")
-        print(prefix)
 
         padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
@@ -335,36 +324,36 @@ class LogsDataProcessor:
 
     
     
-    # def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series,
-    #                               last_feature: pd.Series, x_word_dict: dict, y_next_word_dict: dict, y_last_word_dict: dict,
-    #                               max_length_prefix=None):
+    def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series,
+                                  last_feature: pd.Series, x_word_dict: dict, y_next_word_dict: dict, y_last_word_dict: dict,
+                                  max_length_prefix=None):
 
-    #     if isinstance(prefixes, pd.Series):
-    #         prefixes = prefixes.to_frame()
+        if isinstance(prefixes, pd.Series):
+            prefixes = prefixes.to_frame()
 
-    #     # if prefixes.shape[1] == 0:
-    #     #     raise ValueError("The 'prefixes' DataFrame must have at least one column.")
+        # if prefixes.shape[1] == 0:
+        #     raise ValueError("The 'prefixes' DataFrame must have at least one column.")
 
-    #     if max_length_prefix == None:
-    #         max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
+        if max_length_prefix == None:
+            max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
 
-    #     tokenized_prefix = []
-    #     for seq in prefixes.iloc[:, 0]:
-    #         tokenized_seq = [x_word_dict.get(word, x_word_dict["[UNK]"]) for word in str(seq).split()]
-    #         tokenized_prefix.append(tokenized_seq)
+        tokenized_prefix = []
+        for seq in prefixes.iloc[:, 0]:
+            tokenized_seq = [x_word_dict.get(word, x_word_dict["[UNK]"]) for word in str(seq).split()]
+            tokenized_prefix.append(tokenized_seq)
 
-    #     # # Ensure feature_values is a single column Series
-    #     # if isinstance(feature_values, pd.DataFrame):
-    #     #     feature_values = feature_values.iloc[:, 0]
+        # # Ensure feature_values is a single column Series
+        # if isinstance(feature_values, pd.DataFrame):
+        #     feature_values = feature_values.iloc[:, 0]
 
-    #     tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
-    #     tokenized_next = next_feature.apply(lambda y_next: y_next_word_dict.get(y_next, y_next_word_dict["[UNK]"]))
-    #     tokenized_last = last_feature.apply(lambda y_last: y_last_word_dict.get(y_last, y_last_word_dict["[UNK]"]))
+        tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
+        tokenized_next = next_feature.apply(lambda y_next: y_next_word_dict.get(y_next, y_next_word_dict["[UNK]"]))
+        tokenized_last = last_feature.apply(lambda y_last: y_last_word_dict.get(y_last, y_last_word_dict["[UNK]"]))
 
-    #     padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
-    #     padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
+        padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
+        padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
 
-    #     return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
+        return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
 
 
     def process_logs(self, train_test_ratio: float = 0.80) -> None:
@@ -426,7 +415,7 @@ class LogsDataProcessor:
                 print("Processed features found:")
                 print(existing_cols)
                 print("Excluding features for preprocessing.")
-                # TODO: always keep concept_name faeture
+                # always keep concept_name faeture
                 # if 'concept_name' in existing_cols: existing_cols = existing_cols.remove('concept_name')
                 if 'concept_name' in existing_cols: existing_cols.remove('concept_name')
                 # drop existing features from preprocessing df
@@ -443,13 +432,10 @@ class LogsDataProcessor:
                         # drop un-prepared temp feature
                         df.drop(feature, axis=1, inplace=True)
                         
-                        print(df)
-                        print(prepared_temp_feature_df)
                         # append prepared temp feature data to df
                         df = pd.concat([df, prepared_temp_feature_df], axis=1)
-                        print(df)
             
-            # TODO: Exclude Shuffling?
+            # TODO: Exclude Sorting by earliest time_timestamp (groupby case_concept_name)?
             # # Get the earliest timestamp for each 'case_concept_name'
             # df = df.groupby('case_concept_name').apply(lambda x: x.sort_values('time_timestamp')).reset_index(drop=True)
             # # Sort the entire DataFrame by the earliest timestamp of each group
@@ -465,10 +451,6 @@ class LogsDataProcessor:
             
             # make splits for parallel processing
             df_split = np.array_split(df, self._pool)
-            
-            # TODO:
-            print(df)
-            print(df.dtypes)
             
             # pooling for parallel processing
             print("Processing feature prefixes...")
@@ -495,6 +477,7 @@ class LogsDataProcessor:
                     
                 # Categorical Feature
                 if feature_type is Feature_Type.CATEGORICAL:
+                    
                     # Tokenize values
                     (feature_values,
                     next_feature,
@@ -531,14 +514,13 @@ class LogsDataProcessor:
                         processed_col_lst.append( train_or_test_df[f"{col_str}"]  )
                         processed_col_lst.append( train_or_test_df[f"{col_str}_next-feature"] )
                         processed_col_lst.append( train_or_test_df[f"{col_str}_last-feature"] )
-                        prefix = train_or_test_df[f"{col_str}_prefix"]
+                        # convert series with prefix strings to List[List]
+                        prefix = train_or_test_df[f"{col_str}_prefix"].apply(lambda x: list(map(int, x.split()))).tolist()
                         
                         # TODO: Pad feature prefix
-                        print(f"prefix for: {col_str}")
-                        print(prefix)
                         padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
                         processed_col_lst.append( padded_prefix )
-                        return {col_str: processed_col_lst}, max_length_prefix
+                        return processed_col_lst, max_length_prefix
                     
                     def build_storage_df(col_str, col_lst):
                         return {
@@ -563,11 +545,11 @@ class LogsDataProcessor:
                         # update storage dict with additional day_of_week data
                         storage_dict.update( build_storage_df("day_of_week", day_of_week_lst) )
                         
-                    # process additional temporal time_of_day feature
-                    if self._temporal_features[Temporal_Feature.TIME_OF_DAY]:
-                        time_of_day_lst, max_length_prefix = process_timestamp(f"{feature}##time_of_day", max_length_prefix)
+                    # process additional temporal hour_of_day feature
+                    if self._temporal_features[Temporal_Feature.HOUR_OF_DAY]:
+                        hour_of_day_lst, max_length_prefix = process_timestamp(f"{feature}##hour_of_day", max_length_prefix)
                         # update storage dict with additional day_of_week data
-                        storage_dict.update( build_storage_df("time_of_day", time_of_day_lst) )
+                        storage_dict.update( build_storage_df("hour_of_day", hour_of_day_lst) )
                         
                     
                     # build df for storage
