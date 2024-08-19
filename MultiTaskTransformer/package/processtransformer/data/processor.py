@@ -448,6 +448,12 @@ class LogsDataProcessor:
                         # append prepared temp feature data to df
                         df = pd.concat([df, prepared_temp_feature_df], axis=1)
                         print(df)
+            
+            # TODO: Exclude Shuffling?
+            # # Get the earliest timestamp for each 'case_concept_name'
+            # df = df.groupby('case_concept_name').apply(lambda x: x.sort_values('time_timestamp')).reset_index(drop=True)
+            # # Sort the entire DataFrame by the earliest timestamp of each group
+            # df = df.sort_values(by='time_timestamp').reset_index(drop=True)
                 
             # metadata = self._extract_logs_metadata(df)
             train_test_split_point = int(abs(df["case_concept_name"].nunique() * train_test_ratio))

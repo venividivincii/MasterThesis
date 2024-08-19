@@ -35,6 +35,7 @@ class TransformerBlock(layers.Layer):
         Returns:
             tf.Tensor: Output tensor after applying self-attention and feed-forward network.
         """
+        
         attn_output = self.att(inputs, inputs, attention_mask=mask)  # Self-attention
         attn_output = self.dropout1(attn_output, training=training)
         out1 = self.layernorm1(inputs + attn_output)  # Add & Norm
@@ -51,9 +52,13 @@ class TokenAndPositionEmbedding(layers.Layer):
         vocab_size (int): Size of the vocabulary.
         embed_dim (int): Dimensionality of the embedding space.
     """
-    def __init__(self, maxlen, vocab_size, embed_dim):
+    def __init__(self, maxlen, vocab_size, embed_dim, mask_padding):
         super(TokenAndPositionEmbedding, self).__init__()
-        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
+        # self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
+        # if mask_padding:
+        #     self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, mask_zero=True)
+        # else:
+        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, mask_zero=False)
         self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
         
 
@@ -72,10 +77,13 @@ class TokenAndPositionEmbedding(layers.Layer):
         positions = self.pos_emb(positions)
         x = self.token_emb(x)
         return x + positions  # Combine token and position embeddings
+    
+    def compute_mask(self, inputs, mask=None):
+        return self.token_emb.compute_mask(inputs, mask)
 
 # TODO: vocab_size to list of vocab_sizesnum_classes_list
 def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
-              feature_type_dict: Dict[Feature_Type, List[str]], embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+              feature_type_dict: Dict[Feature_Type, List[str]], embed_dim=36, num_heads=4, ff_dim=64, num_layers=1, mask_padding: bool = True):
     """
     Constructs the next categorical prediction model using a transformer architecture.
     
@@ -106,10 +114,12 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{cat_feature}")
         categorical_inputs.append(categorical_input)
         # Create mask based on input
-        mask = tf.cast(tf.math.not_equal(categorical_input, 0), tf.float32)[:, tf.newaxis, tf.newaxis, :]
-        masks.append(mask)
+        if mask_padding:
+            mask = tf.cast(tf.math.not_equal(categorical_input, 0), tf.float32)[:, tf.newaxis, tf.newaxis, :]
+            masks.append(mask)
+        else: mask = None
         # Input embedding for categorical feature
-        categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
+        categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim, mask_padding)(categorical_input)
         # Transformer Block for categorical feature
         categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb, mask=mask) )
         
@@ -121,8 +131,10 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         x = TransformerBlock(embed_dim*len(categorical_feature_layers), num_heads, ff_dim)(x, mask=mask)
     
     # Global average pooling
-    x = masked_global_avg_pool(x, mask)
-    # x = layers.GlobalAveragePooling1D()(x)
+    if mask_padding:
+        x = masked_global_avg_pool(x, mask)
+    else:
+        x = layers.GlobalAveragePooling1D()(x)
     
     # Fully connected layers
     x = layers.Dropout(0.1)(x)
