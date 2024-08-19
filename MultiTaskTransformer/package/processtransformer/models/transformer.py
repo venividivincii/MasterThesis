@@ -83,7 +83,7 @@ class TokenAndPositionEmbedding(layers.Layer):
 
 # TODO: vocab_size to list of vocab_sizesnum_classes_list
 def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
-              feature_type_dict: Dict[Feature_Type, List[str]], embed_dim=36, num_heads=4, ff_dim=64, num_layers=1, mask_padding: bool = True):
+              feature_type_dict: Dict[Feature_Type, List[str]], embed_dim=36, num_heads=4, ff_dim=64, num_layers=1, mask_padding: bool = False):
     """
     Constructs the next categorical prediction model using a transformer architecture.
     
@@ -122,6 +122,14 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim, mask_padding)(categorical_input)
         # Transformer Block for categorical feature
         categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb, mask=mask) )
+        
+    # Temporal Input layers
+    temporal_inputs, temporal_feature_layers = [], []
+    for temp_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.TIMESTAMP] ]:
+        # Input Layer for temporal feature
+        temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}")
+        temporal_inputs.append(temporal_input)
+        
         
     # concat categorical feature layers
     x = layers.Concatenate()(categorical_feature_layers)
