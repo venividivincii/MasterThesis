@@ -152,11 +152,17 @@ class LogsDataLoader:
             test_dfs.update( {feature: pd.read_csv(os.path.join(self._dir_path, f"{feature}##test.csv"))} )
             with open(os.path.join(self._dir_path, f"{feature}##metadata.json"), "r") as json_file:
                 metadata = json.load(json_file)
-            # create dict with x_word_dict and y_word_dict for each feature
-            word_dicts.update( {feature:  {key: metadata[key] for key in ["x_word_dict", "y_next_word_dict", "y_last_word_dict"] if key in metadata}} )
-            # TODO:
-            # create dict with feature types
+                
+            # get current feature_type
             feature_type = Feature_Type.get_member(metadata["type"])
+            
+            # if categorical
+            if feature_type is Feature_Type.CATEGORICAL:
+                # create dict with x_word_dict and y_word_dict for each categorical feature
+                word_dicts.update( {feature:  {key: metadata[key] for key in ["x_word_dict", "y_next_word_dict", "y_last_word_dict"] if key in metadata}} )
+            # TODO:
+            
+            # create dict with feature types
             if feature_type not in feature_type_dict.keys():
                 feature_type_dict.update( {feature_type: [feature]} )
             else:
