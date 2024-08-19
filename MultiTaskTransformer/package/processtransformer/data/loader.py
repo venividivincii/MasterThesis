@@ -95,12 +95,12 @@ class LogsDataLoader:
             if feature == target_feature:
                 target_col = target
                 break
+           
+        # initialize dicts
+        x_token_dict, y_token_dict = {}, {}
             
         # if feature is categorical
         if feature_type is Feature_Type.CATEGORICAL:
-            # initialize dicts
-            x_token_dict, y_token_dict = {}, {}
-            
             # if feature is a input col
             if is_input:
                 x_token_dict.update({ feature: prepare_prefixes(col_name="Prefix") })
@@ -111,8 +111,30 @@ class LogsDataLoader:
             elif target_col == Target.LAST_FEATURE:
                 y_token_dict.update({ feature: prepare_labels(col_name="Last-Feature") })
         
-        
-        
+        # if feature is temporal
+        elif feature_type is Feature_Type.TIMESTAMP:
+            # if feature is a input col
+            if is_input:
+                # initialize x_token list
+                x_tokens = {}
+                
+                # feature prefix
+                x_tokens.update({"feature": prepare_prefixes(col_name=f"{feature}##Prefix")})
+                
+                # if day_of_week is included
+                if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
+                    day_of_week_str = Temporal_Feature.DAY_OF_WEEK.value
+                    x_tokens.update({day_of_week_str: prepare_prefixes(col_name=f"{day_of_week_str}##Prefix")})
+                # if hour_of_day is included
+                if self._temporal_features[Temporal_Feature.HOUR_OF_DAY]:
+                    hour_of_day_str = Temporal_Feature.HOUR_OF_DAY.value
+                    x_tokens.update({hour_of_day_str: prepare_prefixes(col_name=f"{hour_of_day_str}##Prefix")})
+                
+            # if feature is a target col
+            if target_col == Target.NEXT_FEATURE:
+                y_token_dict.update({ feature: prepare_labels(col_name=f"{feature}##Next-Feature") })
+            elif target_col == Target.LAST_FEATURE:
+                y_token_dict.update({ feature: prepare_labels(col_name=f"{feature}##Last-Feature") })
         
         
         
@@ -175,9 +197,11 @@ class LogsDataLoader:
         #     x_token_dict, y_next_token_dict, y_last_token_dict = (shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict)
         #     del shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict
         
-                
+        # calc max_case_length
         if max_case_length:
-            max_case_length = max( len(seq.split()) for seq in df["Prefix"].values )
+            if feature_type is Feature_Type.CATEGORICAL: prefix_str = "Prefix"
+            elif feature_type is Feature_Type.TIMESTAMP: prefix_str = f"{feature}##Prefix"
+            max_case_length = max( len(seq.split()) for seq in df[prefix_str].values )
             return x_token_dict, y_token_dict, max_case_length
         else:
             return x_token_dict, y_token_dict
