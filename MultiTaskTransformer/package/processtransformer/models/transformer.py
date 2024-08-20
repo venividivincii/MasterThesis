@@ -43,6 +43,66 @@ class TransformerBlock(layers.Layer):
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)  # Add & Norm
 
+
+class TokenEmbedding(layers.Layer):
+    """
+    Token Embedding Layer.
+
+    Args:
+        vocab_size (int): Size of the vocabulary.
+        embed_dim (int): Dimensionality of the embedding space.
+        mask_padding (bool): Whether to mask padding tokens (zero index).
+    """
+    def __init__(self, vocab_size, embed_dim, mask_padding=False):
+        super(TokenEmbedding, self).__init__()
+        if mask_padding:
+            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, mask_zero=True)
+        else:
+            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, mask_zero=False)
+        
+    def call(self, x):
+        """
+        Forward pass for token embedding.
+
+        Args:
+            x (tf.Tensor): Input tensor containing token indices.
+
+        Returns:
+            tf.Tensor: Output tensor with token embeddings.
+        """
+        return self.token_emb(x)  # Return token embeddings
+    
+    
+class PositionEmbedding(layers.Layer):
+    """
+    Position Embedding Layer.
+
+    Args:
+        maxlen (int): Maximum length of the sequences.
+        embed_dim (int): Dimensionality of the embedding space.
+    """
+    def __init__(self, maxlen, embed_dim):
+        super(PositionEmbedding, self).__init__()
+        self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
+        
+    def call(self, x):
+        """
+        Forward pass for position embedding.
+
+        Args:
+            x (tf.Tensor): Input tensor containing token indices or token embeddings.
+
+        Returns:
+            tf.Tensor: Output tensor with position embeddings.
+        """
+        maxlen = tf.shape(x)[1]  # Length of the input sequence
+        positions = tf.range(start=0, limit=maxlen, delta=1)  # Generate position indices
+        positions = self.pos_emb(positions)  # Get position embeddings
+        positions = tf.expand_dims(positions, 0)  # Add a batch dimension (1, maxlen, embed_dim)
+        return x + positions  # Add position embeddings to the input tensor
+
+
+
 class TokenAndPositionEmbedding(layers.Layer):
     """
     Token and Position Embedding Layer.
@@ -108,20 +168,28 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     print("Creating model...")
 
     # Categorical Input layers
-    categorical_inputs, categorical_feature_layers, masks = [], [], []
+    # categorical_inputs, categorical_feature_layers, masks = [], [], []
+    categorical_inputs, categorical_layers = [], []
     for cat_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.CATEGORICAL] ]:
         # Input Layer for categorical feature
         categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{cat_feature}")
         categorical_inputs.append(categorical_input)
+        categorical_layer = TokenEmbedding(len(word_dicts[cat_feature]["x_word_dict"]), embed_dim)(categorical_input)
+        categorical_layers.append(categorical_layer)
         # Create mask based on input
-        if mask_padding:
-            mask = tf.cast(tf.math.not_equal(categorical_input, 0), tf.float32)[:, tf.newaxis, tf.newaxis, :]
-            masks.append(mask)
-        else: mask = None
+        # if mask_padding:
+        #     mask = tf.cast(tf.math.not_equal(categorical_input, 0), tf.float32)[:, tf.newaxis, tf.newaxis, :]
+        #     masks.append(mask)
+        # else: mask = None
+
+        
+        # temp = PositionEmbedding(max_case_length, embed_dim)(temp)
+    mask = None
+    # return None
         # Input embedding for categorical feature
-        categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim, mask_padding)(categorical_input)
+        # categorical_emb = TokenAndPositionEmbedding(max_case_length, len(word_dicts[cat_feature]["x_word_dict"]), embed_dim, mask_padding)(categorical_input)
         # Transformer Block for categorical feature
-        categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb, mask=mask) )
+        # categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb, mask=mask) )
         
     # Temporal Input layers
     # temporal_inputs, temporal_feature_layers = [], []
@@ -130,13 +198,21 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     #     temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}")
     #     temporal_inputs.append(temporal_input)
         
-        
     # concat categorical feature layers
-    x = layers.Concatenate()(categorical_feature_layers)
+    x = layers.Concatenate()(categorical_layers)
+    print("shape after concat")
+    print(x.shape)
+    x = PositionEmbedding(max_case_length, embed_dim*len(categorical_layers))(x)
+    print("Shape after pos_emb")
+    print(x.shape)
+    x = TransformerBlock(embed_dim*len(categorical_layers), num_heads, ff_dim)(x)
+    print("Shape afet transformerBlock")
+    print(x.shape)
+    
     
     # Stacking multiple transformer blocks
-    for _ in range(num_layers):
-        x = TransformerBlock(embed_dim*len(categorical_feature_layers), num_heads, ff_dim)(x, mask=mask)
+    # for _ in range(num_layers):
+    #     x = TransformerBlock(embed_dim*len(categorical_feature_layers), num_heads, ff_dim)(x, mask=mask)
     
     # Global average pooling
     if mask_padding:
