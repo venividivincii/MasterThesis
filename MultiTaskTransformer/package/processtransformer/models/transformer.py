@@ -124,11 +124,11 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         categorical_feature_layers.append( TransformerBlock(embed_dim, num_heads, ff_dim)(categorical_emb, mask=mask) )
         
     # Temporal Input layers
-    temporal_inputs, temporal_feature_layers = [], []
-    for temp_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.TIMESTAMP] ]:
-        # Input Layer for temporal feature
-        temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}")
-        temporal_inputs.append(temporal_input)
+    # temporal_inputs, temporal_feature_layers = [], []
+    # for temp_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.TIMESTAMP] ]:
+    #     # Input Layer for temporal feature
+    #     temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}")
+    #     temporal_inputs.append(temporal_input)
         
         
     # concat categorical feature layers

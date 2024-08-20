@@ -104,12 +104,15 @@ class LogsDataLoader:
             # if feature is a input col
             if is_input:
                 x_token_dict.update({ f"input_{feature}": prepare_prefixes(col_name="Prefix") })
+                # x_token_dict.update({ feature: prepare_prefixes(col_name="Prefix") })
                 
             # if feature is a target col
             if target_col == Target.NEXT_FEATURE:
                 y_token_dict.update({ f"output_{feature}": prepare_labels(col_name="Next-Feature") })
+                # y_token_dict.update({ feature: prepare_labels(col_name="Next-Feature") })
             elif target_col == Target.LAST_FEATURE:
                 y_token_dict.update({ f"output_{feature}": prepare_labels(col_name="Last-Feature") })
+                # y_token_dict.update({ feature: prepare_labels(col_name="Last-Feature") })
         
         # if feature is temporal
         elif feature_type is Feature_Type.TIMESTAMP:
