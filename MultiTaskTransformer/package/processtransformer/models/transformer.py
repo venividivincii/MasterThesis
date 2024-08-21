@@ -166,60 +166,127 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         mask = tf.expand_dims(mask, axis=-1)  # Expand the mask to shape [batch_size, sequence_length, 1]
         x *= mask  # Now x and mask have compatible shapes for element-wise multiplication
         return tf.reduce_sum(x, axis=1) / tf.reduce_sum(mask, axis=1)  # Aggregate along the sequence length
+    
+    
+    def prepare_categorical_input(feature: str):
+        # generate input layer for categorical feature
+        categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+        # do token embedding for categorical feature
+        categorical_emb = TokenEmbedding(vocab_size = len(word_dicts[feature]["x_word_dict"]),
+                                        embed_dim = embed_dim,
+                                        name = f"{feature}_token-embeddings")(categorical_input)
+        return categorical_input, [categorical_emb]
+    
+    
+    def prepare_temporal_input(feature):
+        temporal_inputs = []
+        # Input Layer for temporal feature
+        temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+        # append temporal feature to temporal inputs
+        temporal_inputs.append(temporal_input)
+
+        # if day_of_week is used as additional temp feature
+        if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
+            temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
+            temporal_inputs.append(temporal_input_day_of_week)
+        # if hour_of_day is used as additional temp feature
+        if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
+            temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
+            temporal_inputs.append(temporal_input_hour_of_day)
+        return temporal_inputs
+    
+    
+    def prepare_inputs():
+        inputs_layers, temporal_tensors, feature_tensors = [], [], []
+        temp_feature_exists = False
+        
+        for feature in input_columns:
+            for feature_type, feature_lst in feature_type_dict.items():
+                if feature in feature_lst:
+                    # feature is categorical
+                    if feature_type is Feature_Type.CATEGORICAL:
+                        categorical_input, categorical_emb_dict = prepare_categorical_input(feature)
+                        # append input layer to inputs
+                        inputs_layers.append(categorical_input)
+                        # append categorical token embedding to feature_tensors
+                        feature_tensors.append(categorical_emb_dict)
+                        
+                    # feature is temporal
+                    elif feature_type is Feature_Type.TIMESTAMP:
+                        temp_feature_exists = True
+                        temporal_inputs = prepare_temporal_input(feature)
+                        # append temporal inputs to inputs
+                        inputs_layers.extend(temporal_inputs)
+                        # append temporal inputs to temporal layers
+                        temporal_tensors.append(temporal_inputs)
+              
+        if temp_feature_exists:
+            # flatten temporal tensors
+            flattened_temporal_tensors = [item for sublist in temporal_tensors for item in sublist]
+            # calculate the sum of temporal_layers
+            sum_temp_tensors = len(flattened_temporal_tensors)
+            # concat temporal layers
+            temporal_tensors_concat = layers.Concatenate()( flattened_temporal_tensors )
+            # normalize temporal layers
+            temporal_tensors_concat = layers.LayerNormalization()(temporal_tensors_concat)
+            # reshape temporal layers for compatability with other layers
+            temporal_tensors_concat = layers.Reshape(( 14, sum_temp_tensors ))(temporal_tensors_concat)
+            # split concatenated temporal layers again
+            splitted_temporal_tensors = tf.split(temporal_tensors_concat, num_or_size_splits=sum_temp_tensors, axis=-1)
+            
+            # bring prepared temporal layers back to the shape of temporal_layers (list of lists)
+            prepared_temporal_tensors = []
+            index = 0
+            for sublist in temporal_tensors:
+                length = len(sublist)
+                prepared_temporal_tensors.append(splitted_temporal_tensors[index:index + length])
+                index += length
+            # append temporal layers to feature layers
+            feature_tensors.extend(prepared_temporal_tensors)
+        
+        return inputs_layers, feature_tensors
+                        
+        
 
     print("Creating model...")
-
     # Categorical Input layers
     # categorical_inputs, categorical_feature_layers, masks = [], [], []
-    inputs, feature_layers, temporal_layers = [], [], []
+    # inputs, temporal_layers = [], []
+    # feature_layers = {}
     
-    for feature in input_columns:
-        for feature_type, feature_lst in feature_type_dict.items():
-            if feature in feature_lst:
-                # feature is categorical
-                if feature_type is Feature_Type.CATEGORICAL:
-                    # generate input layer for categorical feature
-                    categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
-                    # append input layer to inputs
-                    inputs.append(categorical_input)
-                    # do token embedding for categorical feature
-                    categorical_layer = TokenEmbedding(vocab_size = len(word_dicts[feature]["x_word_dict"]),
-                                                    embed_dim = embed_dim,
-                                                    name = f"{feature}_token-embeddings")(categorical_input)
-                    # append categorical token embedding to feature_layers
-                    feature_layers.append(categorical_layer)
+    # for feature in input_columns:
+    #     for feature_type, feature_lst in feature_type_dict.items():
+    #         if feature in feature_lst:
+    #             # feature is categorical
+    #             if feature_type is Feature_Type.CATEGORICAL:
+    #                 categorical_input, categorical_emb_dict = process_categorical_input(feature)
+    #                 # append input layer to inputs
+    #                 inputs.append(categorical_input)
+    #                 # append categorical token embedding to feature_layers
+    #                 feature_layers.update(categorical_emb_dict)
                     
-                # feature is temporal
-                elif feature_type is Feature_Type.TIMESTAMP:
-                    temporal_inputs = []
-                    # Input Layer for temporal feature
-                    temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
-                    # append temporal feature to temporal inputs
-                    temporal_inputs.append(temporal_input)
-
-                    # if day_of_week is used as additional temp feature
-                    if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
-                        temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
-                        temporal_inputs.append(temporal_input_day_of_week)
-                    # if hour_of_day is used as additional temp feature
-                    if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
-                        temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
-                        temporal_inputs.append(temporal_input_hour_of_day)
-                    # append temporal inputs to inputs
-                    inputs.append(temporal_inputs)
-                    # append temporal inputs to temporal layers
-                    temporal_layers.extend(temporal_inputs)
+    #             # feature is temporal
+    #             elif feature_type is Feature_Type.TIMESTAMP:
+    #                 temporal_inputs = process_temporal_input(feature)
+    #                 # append temporal inputs to inputs
+    #                 inputs.append(temporal_inputs)
+    #                 # append temporal inputs to temporal layers
+    #                 temporal_layers.extend(temporal_inputs)
       
-    # calculate the sum of temporal_layers
-    sum_temp_layers = len(temporal_layers)             
-    # concat temporal layers
-    temporal_layers = layers.Concatenate()(temporal_layers)
-    # normalize temporal layers
-    temporal_layers = layers.LayerNormalization()(temporal_layers)
-    # reshape temporal layers for compatability with other layers
-    temporal_layers = layers.Reshape(( 14, sum_temp_layers ))(temporal_layers)
-    # append temporal layers to feature layers
-    feature_layers.append(temporal_layers)
+    # # calculate the sum of temporal_layers
+    # sum_temp_layers = len(temporal_layers)             
+    # # concat temporal layers
+    # temporal_layers = layers.Concatenate()(temporal_layers)
+    # # normalize temporal layers
+    # temporal_layers = layers.LayerNormalization()(temporal_layers)
+    # print("shape after normalization:")
+    # print(temporal_layers.shape)
+    # # reshape temporal layers for compatability with other layers
+    # temporal_layers = layers.Reshape(( 14, sum_temp_layers ))(temporal_layers)
+    # print("shape after reshape")
+    # print(temporal_layers.shape)
+    # # append temporal layers to feature layers
+    # feature_layers.append(temporal_layers)
                     
                     
             
@@ -286,9 +353,15 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     #     # Input Layer for temporal feature
     #     temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}")
     #     temporal_inputs.append(temporal_input)
+    
+    
+    inputs_layers, feature_tensors = prepare_inputs()
+    
+    # flatten feature_tensors
+    feature_tensors = [item for sublist in feature_tensors for item in sublist]
         
     # concat categorical feature layers
-    x = layers.Concatenate()(feature_layers)
+    x = layers.Concatenate()(feature_tensors)
     # print(f"shape after concat all: {x.shape}")
     # print(x.shape[-1])
     # calculate the embed_dim after concatenation
@@ -327,6 +400,6 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     
     
     # Model definition
-    transformer = Model(inputs=inputs, outputs=outputs, name="next_categorical_transformer")
+    transformer = Model(inputs=inputs_layers, outputs=outputs, name="next_categorical_transformer")
     
     return transformer
