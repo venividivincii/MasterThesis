@@ -68,6 +68,15 @@ class LogsDataProcessor:
             sanitized_filename += '_'
             
         return sanitized_filename
+    
+    
+    def _sanitize_class_vars(self):
+        self.additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
+                                    feature_lst in self.additional_columns.items()
+                                    } if len(self.additional_columns)>0 else {}
+        self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
+        self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
+        self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
         
 
     def _load_df(self) -> pd.DataFrame:
@@ -89,16 +98,22 @@ class LogsDataProcessor:
         else:
             raise ValueError("Unsupported file format. Please provide a .csv or .xes file.")
         
+        print("self._org_columns")
+        print(self._org_columns)
+        print("additional_cols")
+        print(additional_cols)
+        
         df = df[self._org_columns + additional_cols]
         
         # sanitize columns
-        self.additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
-                                    feature_lst in self.additional_columns.items()
-                                    } if len(self.additional_columns)>0 else {}
-        self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
-        self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
+        # self.additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
+        #                             feature_lst in self.additional_columns.items()
+        #                             } if len(self.additional_columns)>0 else {}
+        # self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
+        # self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
         additional_cols = [self.sanitize_filename(col, self._org_columns) for col in additional_cols]
-        self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
+        # self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
+        self._sanitize_class_vars()
         
         df.columns = ["case_concept_name", "concept_name", "time_timestamp"] + additional_cols
         df["concept_name"] = df["concept_name"].str.lower().str.replace(" ", "-")
@@ -375,12 +390,11 @@ class LogsDataProcessor:
                 ):
                 existing_cols.append(feature)
                 
+                
         # All preprocessing files exits
         if len(all_cols) == len(existing_cols):
+            self._sanitize_class_vars()
             print("All processed files for current spec found. Preprocessing skipped.")
-            
-        else:
-            df = self._load_df()
             
             # always add concept_name to additional_columns
             if ( Feature_Type.CATEGORICAL in self.additional_columns
@@ -397,14 +411,27 @@ class LogsDataProcessor:
                     self.additional_columns[Feature_Type.TIMESTAMP].insert("time_timestamp")
                 else: self.additional_columns[Feature_Type.TIMESTAMP] = ["time_timestamp"]
             
+        else:
+            # load the df
+            df = self._load_df()
             
-            # # always add concept_name to additional_columns
-            # if ( len(self.additional_columns.values()) == 0
-            #     or "concept_name" not in self.additional_columns[Feature_Type.CATEGORICAL] ):
-            #     if Feature_Type.CATEGORICAL in self.additional_columns:
-            #         self.additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
-            #     else:
-            #         self.additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
+            # sanitize columns
+            self._sanitize_class_vars()
+            
+            # always add concept_name to additional_columns
+            if ( Feature_Type.CATEGORICAL in self.additional_columns
+                and "concept_name" not in self.additional_columns[Feature_Type.CATEGORICAL] ):
+                    self.additional_columns[Feature_Type.CATEGORICAL].insert(0, "concept_name")
+            else: self.additional_columns[Feature_Type.CATEGORICAL] = ["concept_name"]
+            
+            # if timestamp in input or target columns, add it to additional columns
+            if ( "time_timestamp" in self._input_columns
+                or "time_timestamp" in self._target_columns):
+                
+                if ( Feature_Type.TIMESTAMP in self.additional_columns
+                and "time_timestamp" not in self.additional_columns[Feature_Type.TIMESTAMP] ):
+                    self.additional_columns[Feature_Type.TIMESTAMP].insert("time_timestamp")
+                else: self.additional_columns[Feature_Type.TIMESTAMP] = ["time_timestamp"]
                 
             
             # No preprocessing files exist
@@ -477,19 +504,18 @@ class LogsDataProcessor:
                     
                 # Categorical Feature
                 if feature_type is Feature_Type.CATEGORICAL:
-                    
                     # Tokenize values
                     (feature_values,
                     next_feature,
                     last_feature,
                     prefix
-                    )= self._tokenize_feature(  train_or_test_df[f"{feature}_prefix"],
-                                                train_or_test_df[feature],
-                                                train_or_test_df[f"{feature}_next-feature"],
-                                                train_or_test_df[f"{feature}_last-feature"],
-                                                metadata[feature]["x_word_dict"],
-                                                metadata[feature]["y_next_word_dict"],
-                                                metadata[feature]["y_last_word_dict"] )
+                    )= self._tokenize_feature(  prefixes = train_or_test_df[f"{feature}_prefix"],
+                                                feature_values = train_or_test_df[feature],
+                                                next_feature = train_or_test_df[f"{feature}_next-feature"],
+                                                last_feature = train_or_test_df[f"{feature}_last-feature"],
+                                                x_word_dict = metadata[feature]["x_word_dict"],
+                                                y_next_word_dict = metadata[feature]["y_next_word_dict"],
+                                                y_last_word_dict = metadata[feature]["y_last_word_dict"] )
                     # Pad feature prefix
                     padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
                     # build df for storage
