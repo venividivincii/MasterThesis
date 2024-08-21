@@ -41,3 +41,18 @@ class Temporal_Feature(enum.Enum):
         if member.value == value:
             return member
     raise ValueError(f"'{value}' is not a valid value for {Temporal_Feature.__name__}")
+  
+  
+@enum.unique
+class Model_Architecture(enum.Enum):
+  """Look up for model architectures."""
+  
+  COMMON_POSEMBS_TRANSF = "common embeddings and transformers for all features"
+  SEPERATE_POSEMBS = "seperate positional embeddings and common transformer for all features"
+  SEPERATE_TRANSF = "seperate positional embeddings and transformers for each feature"
+  
+  def get_member(value):
+    for member in Model_Architecture:
+        if member.value == value:
+            return member
+    raise ValueError(f"'{value}' is not a valid value for {Model_Architecture.__name__}")
