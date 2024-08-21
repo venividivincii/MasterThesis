@@ -96,8 +96,6 @@ class PositionEmbedding(layers.Layer):
         Returns:
             tf.Tensor: Output tensor with position embeddings.
         """
-        print("x.shape")
-        print(x.shape)
         maxlen = tf.shape(x)[1]  # Length of the input sequence
         positions = tf.range(start=0, limit=maxlen, delta=1)  # Generate position indices
         positions = self.pos_emb(positions)  # Get position embeddings
@@ -173,53 +171,106 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
 
     # Categorical Input layers
     # categorical_inputs, categorical_feature_layers, masks = [], [], []
-    inputs, feature_layers = [], []
-    if Feature_Type.CATEGORICAL in feature_type_dict:
-        for cat_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.CATEGORICAL] ]:
-            # Input Layer for categorical feature
-            categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{cat_feature}")
-            inputs.append(categorical_input)
-            # vocab_size, embed_dim, name
-            categorical_layer = TokenEmbedding(vocab_size = len(word_dicts[cat_feature]["x_word_dict"])+1,
-                                               embed_dim = embed_dim,
-                                               name = f"{cat_feature}_token-embeddings")(categorical_input)
-            print(f"{cat_feature} x_word_dict length:")
-            print(len(word_dicts[cat_feature]["x_word_dict"]))
-            feature_layers.append(categorical_layer)
-            # print(f"categorical emb shape: {categorical_layer.shape}")
-            # Create mask based on input
-            # if mask_padding:
-            #     mask = tf.cast(tf.math.not_equal(categorical_input, 0), tf.float32)[:, tf.newaxis, tf.newaxis, :]
-            #     masks.append(mask)
-            # else: mask = None
+    inputs, feature_layers, temporal_layers = [], [], []
+    
+    for feature in input_columns:
+        for feature_type, feature_lst in feature_type_dict.items():
+            if feature in feature_lst:
+                # feature is categorical
+                if feature_type is Feature_Type.CATEGORICAL:
+                    # generate input layer for categorical feature
+                    categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+                    # append input layer to inputs
+                    inputs.append(categorical_input)
+                    # do token embedding for categorical feature
+                    categorical_layer = TokenEmbedding(vocab_size = len(word_dicts[feature]["x_word_dict"]),
+                                                    embed_dim = embed_dim,
+                                                    name = f"{feature}_token-embeddings")(categorical_input)
+                    # append categorical token embedding to feature_layers
+                    feature_layers.append(categorical_layer)
+                    
+                # feature is temporal
+                elif feature_type is Feature_Type.TIMESTAMP:
+                    temporal_inputs = []
+                    # Input Layer for temporal feature
+                    temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+                    # append temporal feature to temporal inputs
+                    temporal_inputs.append(temporal_input)
 
-    # Temporal Input layers
-    temporal_layers = []
-    if Feature_Type.TIMESTAMP in feature_type_dict:
-        for temp_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.TIMESTAMP] ]:
-            # Input Layer for temporal feature
-            temporal_input_feature = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}")
-            # print(f"temporal_input_feature shape: {temporal_input_feature.shape}")
-            temporal_layers.append(temporal_input_feature)
-            # if day_of_week is used as additional temp feature
-            if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
-                temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
-                temporal_layers.append(temporal_input_day_of_week)
-            # if hour_of_day is used as additional temp feature
-            if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
-                temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
-                temporal_layers.append(temporal_input_hour_of_day)
-        inputs.append(temporal_layers)
-        sum_temp_layers = len(temporal_layers)
-        # concat temporal layers
-        temporal_layers = layers.Concatenate()(temporal_layers)
-        # print(f"concat temp layers shape: {temporal_layers.shape}")
-        temporal_layers = layers.LayerNormalization()(temporal_layers)
-        # print(f"normalized temp layers shape: {temporal_layers.shape}")
-        # reshape temporal layers for compatability with other layers
-        temporal_layers = layers.Reshape((14, sum_temp_layers))(temporal_layers)
-        # print(f"reshaped layers shape: {temporal_layers.shape}")
-        feature_layers.append(temporal_layers)
+                    # if day_of_week is used as additional temp feature
+                    if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
+                        temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
+                        temporal_inputs.append(temporal_input_day_of_week)
+                    # if hour_of_day is used as additional temp feature
+                    if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
+                        temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
+                        temporal_inputs.append(temporal_input_hour_of_day)
+                    # append temporal inputs to inputs
+                    inputs.append(temporal_inputs)
+                    # append temporal inputs to temporal layers
+                    temporal_layers.extend(temporal_inputs)
+      
+    # calculate the sum of temporal_layers
+    sum_temp_layers = len(temporal_layers)             
+    # concat temporal layers
+    temporal_layers = layers.Concatenate()(temporal_layers)
+    # normalize temporal layers
+    temporal_layers = layers.LayerNormalization()(temporal_layers)
+    # reshape temporal layers for compatability with other layers
+    temporal_layers = layers.Reshape(( 14, sum_temp_layers ))(temporal_layers)
+    # append temporal layers to feature layers
+    feature_layers.append(temporal_layers)
+                    
+                    
+            
+    # if Feature_Type.CATEGORICAL in feature_type_dict:
+    #     for cat_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.CATEGORICAL] ]:
+    #         # Input Layer for categorical feature
+    #         # categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{cat_feature}")
+    #         categorical_input = layers.Input(shape=(max_case_length,), name="NONSENSE cat"+str(idx))
+    #         idx += 1
+    #         inputs.append(categorical_input)
+    #         # vocab_size, embed_dim, name
+    #         categorical_layer = TokenEmbedding(vocab_size = len(word_dicts[cat_feature]["x_word_dict"])+1,
+    #                                            embed_dim = embed_dim,
+    #                                            name = f"{cat_feature}_token-embeddings")(categorical_input)
+    #         print(f"{cat_feature} x_word_dict length:")
+    #         print(len(word_dicts[cat_feature]["x_word_dict"]))
+    #         feature_layers.append(categorical_layer)
+    #         # print(f"categorical emb shape: {categorical_layer.shape}")
+    #         # Create mask based on input
+    #         # if mask_padding:
+    #         #     mask = tf.cast(tf.math.not_equal(categorical_input, 0), tf.float32)[:, tf.newaxis, tf.newaxis, :]
+    #         #     masks.append(mask)
+    #         # else: mask = None
+
+    # # Temporal Input layers
+    # temporal_layers = []
+    # if Feature_Type.TIMESTAMP in feature_type_dict:
+    #     for temp_feature in [ s for s in input_columns if s in feature_type_dict[Feature_Type.TIMESTAMP] ]:
+    #         # Input Layer for temporal feature
+    #         temporal_input_feature = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}")
+    #         # print(f"temporal_input_feature shape: {temporal_input_feature.shape}")
+    #         temporal_layers.append(temporal_input_feature)
+    #         # if day_of_week is used as additional temp feature
+    #         if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
+    #             temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
+    #             temporal_layers.append(temporal_input_day_of_week)
+    #         # if hour_of_day is used as additional temp feature
+    #         if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
+    #             temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{temp_feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
+    #             temporal_layers.append(temporal_input_hour_of_day)
+    #     inputs.append(temporal_layers)
+    #     sum_temp_layers = len(temporal_layers)
+    #     # concat temporal layers
+    #     temporal_layers = layers.Concatenate()(temporal_layers)
+    #     # print(f"concat temp layers shape: {temporal_layers.shape}")
+    #     temporal_layers = layers.LayerNormalization()(temporal_layers)
+    #     # print(f"normalized temp layers shape: {temporal_layers.shape}")
+    #     # reshape temporal layers for compatability with other layers
+    #     temporal_layers = layers.Reshape((14, sum_temp_layers))(temporal_layers)
+    #     # print(f"reshaped layers shape: {temporal_layers.shape}")
+    #     feature_layers.append(temporal_layers)
         
         # temp = PositionEmbedding(max_case_length, embed_dim)(temp)
     mask = None
