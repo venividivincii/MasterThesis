@@ -141,6 +141,37 @@ class TokenAndPositionEmbedding(layers.Layer):
     
     def compute_mask(self, inputs, mask=None):
         return self.token_emb.compute_mask(inputs, mask)
+    
+    
+
+class MultiTaskLoss(layers.Layer):
+    def __init__(self, is_regression, reduction='sum', **kwargs):
+        super(MultiTaskLoss, self).__init__(**kwargs)
+        self.is_regression = tf.constant(is_regression, dtype=tf.float32)
+        self.n_tasks = len(is_regression)
+        self.log_vars = self.add_weight(name='log_vars', shape=(self.n_tasks,), initializer='zeros', trainable=True)
+        self.reduction = reduction
+
+    def call(self, losses):
+        stds = tf.exp(self.log_vars)**0.5
+        coeffs = 1 / ((self.is_regression + 1) * (stds**2))
+        multi_task_losses = coeffs * losses + tf.math.log(stds)
+
+        if self.reduction == 'sum':
+            return tf.reduce_sum(multi_task_losses)
+        elif self.reduction == 'mean':
+            return tf.reduce_mean(multi_task_losses)
+        else:
+            return multi_task_losses
+
+    def get_config(self):
+        config = super(MultiTaskLoss, self).get_config()
+        config.update({
+            'is_regression': self.is_regression.numpy().tolist(),
+            'reduction': self.reduction
+        })
+        return config    
+    
 
 # TODO: vocab_size to list of vocab_sizesnum_classes_list
 def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
@@ -306,7 +337,7 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     # Output layers for categorical features
     outputs = []
     for feature, target in target_columns.items():
-        for feature_type, feature_lst in feature_type_dict:
+        for feature_type, feature_lst in feature_type_dict.items():
             if feature in feature_lst:
                 if feature_type is Feature_Type.CATEGORICAL:
                     if target == Target.NEXT_FEATURE: dict_str = "y_next_word_dict"
