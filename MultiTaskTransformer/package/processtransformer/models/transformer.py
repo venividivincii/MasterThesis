@@ -141,7 +141,30 @@ class TokenAndPositionEmbedding(layers.Layer):
     
     def compute_mask(self, inputs, mask=None):
         return self.token_emb.compute_mask(inputs, mask)
-    
+ 
+ 
+class MinMaxScaling(layers.Layer):
+    def __init__(self, min_val=0.0, max_val=1.0, **kwargs):
+        super(MinMaxScaling, self).__init__(**kwargs)
+        self.min_val = min_val
+        self.max_val = max_val
+
+    def build(self, input_shape):
+        super(MinMaxScaling, self).build(input_shape)
+
+    def call(self, inputs):
+        # Calculate min and max from the inputs
+        min_inputs = tf.reduce_min(inputs, axis=0, keepdims=True)
+        max_inputs = tf.reduce_max(inputs, axis=0, keepdims=True)
+        
+        # Apply min-max scaling
+        scaled_inputs = (inputs - min_inputs) / (max_inputs - min_inputs)
+        scaled_inputs = scaled_inputs * (self.max_val - self.min_val) + self.min_val
+        
+        return scaled_inputs
+
+    def compute_output_shape(self, input_shape):
+        return input_shape   
     
 
 class MultiTaskLoss(layers.Layer):
@@ -259,7 +282,16 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
             sum_temp_tensors = len(flattened_temporal_tensors)
             # concat temporal layers
             temporal_tensors_concat = layers.Concatenate()( flattened_temporal_tensors )
-            # normalize temporal layers
+            # get max values of all x_word_dicts
+            # max_values = []
+            # for feature_dict in word_dicts.values():
+            #     max_values.append( max(feature_dict["x_word_dict"].values()) )
+            # avg_max_token = sum(max_values) / len(max_values) if max_values else 0
+            
+            # # normalize temporal layers
+            # if avg_max_token > 0:
+            #     temporal_tensors_concat = MinMaxScaling(min_val=1, max_val=avg_max_token)(temporal_tensors_concat)
+            # else:
             temporal_tensors_concat = layers.LayerNormalization()(temporal_tensors_concat)
             # reshape temporal layers for compatability with other layers
             temporal_tensors_concat = layers.Reshape(( 14, sum_temp_tensors ))(temporal_tensors_concat)
