@@ -305,12 +305,17 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     
     # Output layers for categorical features
     outputs = []
-    for target_col, target in target_columns.items():
-        if target == Target.NEXT_FEATURE: dict_str = "y_next_word_dict"
-        elif target == Target.LAST_FEATURE: dict_str = "y_last_word_dict"
-        else: raise ValueError("Target type is not known.")
-        output_dim = len(word_dicts[target_col][dict_str])
-        outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{target_col}")(x) )
+    for feature, target in target_columns.items():
+        for feature_type, feature_lst in feature_type_dict:
+            if feature in feature_lst:
+                if feature_type is Feature_Type.CATEGORICAL:
+                    if target == Target.NEXT_FEATURE: dict_str = "y_next_word_dict"
+                    elif target == Target.LAST_FEATURE: dict_str = "y_last_word_dict"
+                    else: raise ValueError("Target type is not known.")
+                    output_dim = len(word_dicts[feature][dict_str])
+                    outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x) )
+                if feature_type is Feature_Type.TIMESTAMP:
+                    outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x) )
     
     
     
