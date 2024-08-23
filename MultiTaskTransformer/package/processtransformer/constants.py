@@ -50,6 +50,7 @@ class Model_Architecture(enum.Enum):
   COMMON_POSEMBS_TRANSF = "common embeddings and transformers for all features"
   SEPERATE_POSEMBS = "seperate positional embeddings and common transformer for all features"
   SEPERATE_TRANSF = "seperate positional embeddings and transformers for each feature"
+  TIME_TARGET = "Architecture for prediction temporal targets"
   
   def get_member(value):
     for member in Model_Architecture:

@@ -92,6 +92,7 @@ class LogsDataProcessor:
         unique_cases = df[case_id].unique()
         for _, case in enumerate(unique_cases):
             act = df[df[case_id] == case][event_name].to_list()
+            df[event_time] = df[event_time].astype(str) # TODO: debug update
             time = df[df[case_id] == case][event_time].str[:19].to_list()
             time_passed = 0
             latest_diff = datetime.timedelta()

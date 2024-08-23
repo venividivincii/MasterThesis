@@ -137,66 +137,6 @@ class LogsDataLoader:
                 y_token_dict.update({ f"output_{feature}": prepare_labels(col_name=f"{feature}##Last-Feature") })
         
         
-        
-        # x_token_dict, y_next_token_dict, y_last_token_dict = {}, {}, {}
-        
-        # for idx, col in enumerate(df):
-        #     # feature column
-        #     if idx == 1:
-        #         feature = col
-        #     # feature-prefix column
-        #     elif idx == 2:
-        #         x = df.iloc[:, idx]
-        #         # Convert each string of numbers to a list of integers
-        #         x = x.apply(lambda x: [float(num) for num in x.split()])
-        #         # Convert to NumPy array of type np.float32
-        #         x = np.array(x.tolist(), dtype=np.float32)
-        #         # update dict
-        #         x_token_dict.update( {feature: x} )
-        #     # next-feature column
-        #     elif idx  == 4:
-        #         y_next = df.iloc[:, idx]
-        #         # Convert to NumPy array of type np.float32
-        #         y_next = np.array(y_next.tolist(), dtype=np.float32)
-        #         # update dict
-        #         y_next_token_dict.update({feature: y_next})
-        #     # last-feature column
-        #     elif idx  == 5:
-        #         y_last = df.iloc[:, idx]
-        #         # Convert to NumPy array of type np.float32
-        #         y_last = np.array(y_last.tolist(), dtype=np.float32)
-        #         # update dict
-        #         y_last_token_dict.update({feature: y_last})
-                
-                
-        # TODO: Shuffeling
-        # if(shuffle):
-        #     # Create RandomState with seed
-        #     rng = np.random.RandomState(42)
-
-        #     # Generate random permutation of indices
-        #     num_samples = next(iter(x_token_dict.values())).shape[0]
-        #     shuffled_indices = rng.permutation(num_samples)
-
-        #     # initialize dicts
-        #     shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict = {}, {}, {}
-
-        #     # Shuffle x_token_dict using shuffled_indices
-        #     for feature, x_tokens in x_token_dict.items():
-        #         shuffled_x_token_dict[feature] = x_tokens[shuffled_indices]
-
-        #     # Shuffle y_next_token_dict using shuffled_indices
-        #     for feature, y_next_tokens in y_next_token_dict.items():
-        #         shuffled_y_next_token_dict[feature] = y_next_tokens[shuffled_indices]
-                
-        #     # Shuffle y_last_token_dict using shuffled_indices
-        #     for feature, y_last_tokens in y_last_token_dict.items():
-        #         shuffled_y_last_token_dict[feature] = y_last_tokens[shuffled_indices]
-            
-        #     # renaming and deleting
-        #     x_token_dict, y_next_token_dict, y_last_token_dict = (shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict)
-        #     del shuffled_x_token_dict, shuffled_y_next_token_dict, shuffled_y_last_token_dict
-        
         # calc max_case_length
         if max_case_length:
             if feature_type is Feature_Type.CATEGORICAL: prefix_str = "Prefix"

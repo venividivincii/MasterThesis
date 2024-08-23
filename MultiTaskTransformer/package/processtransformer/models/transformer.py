@@ -53,13 +53,9 @@ class TokenEmbedding(layers.Layer):
         embed_dim (int): Dimensionality of the embedding space.
         mask_padding (bool): Whether to mask padding tokens (zero index).
     """
-    def __init__(self, vocab_size, embed_dim, name, mask_padding=False):
+    def __init__(self, vocab_size, embed_dim, name, masking):
         super(TokenEmbedding, self).__init__()
-        mask_padding = False
-        if mask_padding:
-            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, mask_zero=True)
-        else:
-            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, name=name)
+        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, name=name, mask_zero=masking)
         
     def call(self, x):
         """
@@ -113,7 +109,7 @@ class TokenAndPositionEmbedding(layers.Layer):
         vocab_size (int): Size of the vocabulary.
         embed_dim (int): Dimensionality of the embedding space.
     """
-    def __init__(self, maxlen, vocab_size, embed_dim, mask_padding):
+    def __init__(self, maxlen, vocab_size, embed_dim, masking):
         super(TokenAndPositionEmbedding, self).__init__()
         # self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
         # if mask_padding:
@@ -193,14 +189,44 @@ class MultiTaskLoss(layers.Layer):
             'is_regression': self.is_regression.numpy().tolist(),
             'reduction': self.reduction
         })
-        return config    
+        return config
+    
+    
+class MaskedGlobalAveragePooling1D(layers.Layer):
+    def call(self, inputs, mask=None):
+        """
+        Applies global average pooling while considering a mask.
+
+        Args:
+            inputs (tf.Tensor): The input tensor to be pooled, shape (batch_size, sequence_length, feature_dim).
+            mask (tf.Tensor): The mask tensor, shape (batch_size, sequence_length).
+        
+        Returns:
+            tf.Tensor: The result of the masked global average pooling.
+        """
+        if mask is not None:
+            mask = tf.cast(mask, dtype=tf.float32)  # Ensure mask is of type float32
+            mask = tf.expand_dims(mask, axis=-1)  # Expand the mask to shape (batch_size, sequence_length, 1)
+            inputs *= mask  # Apply the mask to the input tensor
+
+            # Sum over the sequence length, considering only unmasked positions
+            summed = tf.reduce_sum(inputs, axis=1)
+            # Count the number of valid (non-masked) entries along the sequence length
+            mask_sum = tf.reduce_sum(mask, axis=1)
+            
+            # Avoid division by zero: if all positions are masked, treat it as 1 to avoid NaNs
+            mask_sum = tf.maximum(mask_sum, tf.ones_like(mask_sum))
+            
+            return summed / mask_sum  # Perform the global average pooling, accounting for the mask
+        else:
+            return tf.reduce_mean(inputs, axis=1)
     
 
 # TODO: vocab_size to list of vocab_sizesnum_classes_list
 def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
               feature_type_dict: Dict[Feature_Type, List[str]], temporal_features: Dict[Temporal_Feature, bool],
               model_architecture: Model_Architecture,
-              embed_dim=36, num_heads=4, ff_dim=64, num_layers=1, mask_padding: bool = False):
+              embed_dim=36, num_heads=4, ff_dim=64, num_layers=1, masking: bool = True):
     """
     Constructs the next categorical prediction model using a transformer architecture.
     
@@ -214,13 +240,32 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
     Returns:
         tf.keras.Model: Compiled transformer model for next categorical prediction.
     """
-    # global average pooling with mask
-    def masked_global_avg_pool(x, mask):
-        mask = tf.cast(mask, dtype=tf.float32)  # Ensure mask is of type float32
-        mask = tf.squeeze(mask, axis=[1, 2])  # Remove the extra dimensions, making mask shape [batch_size, sequence_length]
-        mask = tf.expand_dims(mask, axis=-1)  # Expand the mask to shape [batch_size, sequence_length, 1]
-        x *= mask  # Now x and mask have compatible shapes for element-wise multiplication
-        return tf.reduce_sum(x, axis=1) / tf.reduce_sum(mask, axis=1)  # Aggregate along the sequence length
+    mask = None
+    
+    # def masked_global_avg_pool(x, mask):
+    #     """
+    #     Applies global average pooling while considering a mask.
+        
+    #     Args:
+    #         x (tf.Tensor): The input tensor to be pooled, shape (batch_size, sequence_length, feature_dim).
+    #         mask (tf.Tensor): The mask tensor, shape (batch_size, sequence_length).
+            
+    #     Returns:
+    #         tf.Tensor: The result of the masked global average pooling.
+    #     """
+    #     mask = tf.cast(mask, dtype=tf.float32)  # Ensure mask is of type float32
+    #     mask = tf.expand_dims(mask, axis=-1)  # Expand the mask to shape (batch_size, sequence_length, 1)
+    #     x *= mask  # Apply the mask to the input tensor
+        
+    #     # Sum over the sequence length, considering only unmasked positions
+    #     summed = tf.reduce_sum(x, axis=1)
+    #     # Count the number of valid (non-masked) entries along the sequence length
+    #     mask_sum = tf.reduce_sum(mask, axis=1)
+        
+    #     # Avoid division by zero: if all positions are masked, treat it as 1 to avoid NaNs
+    #     mask_sum = tf.maximum(mask_sum, tf.ones_like(mask_sum))
+        
+    #     return summed / mask_sum  # Perform the global average pooling, accounting for the mask
     
     
     def prepare_categorical_input(feature: str):
@@ -229,8 +274,11 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         # do token embedding for categorical feature
         categorical_emb = TokenEmbedding(vocab_size = len(word_dicts[feature]["x_word_dict"]),
                                         embed_dim = embed_dim,
-                                        name = f"{feature}_token-embeddings")(categorical_input)
-        return categorical_input, [categorical_emb]
+                                        name = f"{feature}_token-embeddings",
+                                        masking=masking)(categorical_input)
+        # if masking: mask = categorical_emb._keras_mask
+        # else: mask = None
+        return categorical_input, [categorical_emb], mask
     
     
     def prepare_temporal_input(feature):
@@ -248,7 +296,12 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
         if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
             temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
             temporal_inputs.append(temporal_input_hour_of_day)
-        return temporal_inputs
+            
+        # Generate a mask for the temporal features by masking out zeros
+        # if masking:
+        #     mask = tf.cast(tf.not_equal(temporal_input, 0), tf.float32)
+        else: mask = None
+        return temporal_inputs, mask
     
     
     def prepare_inputs():
@@ -260,28 +313,40 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
                 if feature in feature_lst:
                     # feature is categorical
                     if feature_type is Feature_Type.CATEGORICAL:
-                        categorical_input, categorical_emb_dict = prepare_categorical_input(feature)
+                        categorical_input, categorical_embs, mask = prepare_categorical_input(feature)
                         # append input layer to inputs
                         inputs_layers.append(categorical_input)
                         # append categorical token embedding to feature_tensors
-                        feature_tensors.append(categorical_emb_dict)
+                        feature_tensors.append(categorical_embs)
                         
                     # feature is temporal
                     elif feature_type is Feature_Type.TIMESTAMP:
                         temp_feature_exists = True
-                        temporal_inputs = prepare_temporal_input(feature)
+                        temporal_inputs, mask = prepare_temporal_input(feature)
                         # append temporal inputs to inputs
                         inputs_layers.extend(temporal_inputs)
                         # append temporal inputs to temporal layers
                         temporal_tensors.append(temporal_inputs)
+                        
+                        # # TODO: testing out
+                        # tesors_of_temp_feature = []
+                        # for temporal_tensor in temporal_inputs:
+                        #     temporal_tensor = PositionEmbedding(maxlen=max_case_length, embed_dim=temporal_tensor.shape[-1], name=f"position-embedding_temp_{idx}")(temporal_tensor)
+                        #     temporal_tensor = TransformerBlock(temporal_tensor.shape[-1], num_heads, ff_dim)(temporal_tensor)
+                        #     tesors_of_temp_feature.append(temporal_inputs)
+                        # temporal_tensors.append(tesors_of_temp_feature)
+                        
               
         if temp_feature_exists:
             # flatten temporal tensors
             flattened_temporal_tensors = [item for sublist in temporal_tensors for item in sublist]
+            
             # calculate the sum of temporal_layers
             sum_temp_tensors = len(flattened_temporal_tensors)
+            
             # concat temporal layers
             temporal_tensors_concat = layers.Concatenate()( flattened_temporal_tensors )
+            
             # get max values of all x_word_dicts
             # max_values = []
             # for feature_dict in word_dicts.values():
@@ -292,11 +357,14 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
             # if avg_max_token > 0:
             #     temporal_tensors_concat = MinMaxScaling(min_val=1, max_val=avg_max_token)(temporal_tensors_concat)
             # else:
-            temporal_tensors_concat = layers.LayerNormalization()(temporal_tensors_concat)
+            # temporal_tensors_concat = layers.LayerNormalization()(temporal_tensors_concat)
+            
             # reshape temporal layers for compatability with other layers
             temporal_tensors_concat = layers.Reshape(( 14, sum_temp_tensors ))(temporal_tensors_concat)
+            
             # split concatenated temporal layers again
             splitted_temporal_tensors = tf.split(temporal_tensors_concat, num_or_size_splits=sum_temp_tensors, axis=-1)
+            
             
             # bring prepared temporal layers back to the shape of temporal_layers (list of lists)
             prepared_temporal_tensors = []
@@ -305,17 +373,17 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
                 length = len(sublist)
                 prepared_temporal_tensors.append(splitted_temporal_tensors[index:index + length])
                 index += length
-            # append temporal layers to feature layers
+            # append temporal tensors to feature tensors
             feature_tensors.extend(prepared_temporal_tensors)
         
-        return inputs_layers, feature_tensors
+        return inputs_layers, feature_tensors, mask
                         
     ############################################################################################
 
     print("Creating model...")
     
     # prepare inputs
-    inputs_layers, feature_tensors = prepare_inputs()
+    inputs_layers, feature_tensors, mask = prepare_inputs()
     
     # common embeddings and transformers for all features
     if model_architecture is Model_Architecture.COMMON_POSEMBS_TRANSF:
@@ -348,18 +416,44 @@ def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_
             # add position embeddings
             x = PositionEmbedding(maxlen=max_case_length, embed_dim=x.shape[-1], name=f"position-embedding_feature_{idx}")(x)
             # feed into transformer block
-            x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x)
+            x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x, mask=mask)
             # append to list of feature transformer tensors
             feature_transf.append(x)
         # concat feature transformer tensors
         x = layers.Concatenate()(feature_transf)
+        
+        
+    # seperate positional embeddings and transformers for each feature
+    elif model_architecture is Model_Architecture.TIME_TARGET:
+        feature_transf = []
+        for idx, tensors_of_feature in enumerate(feature_tensors):
+            transformers_of_feature = []
+            for x in tensors_of_feature:
+                # add position embeddings
+                x = PositionEmbedding(maxlen=max_case_length, embed_dim=x.shape[-1], name=f"position-embedding_feature_{idx}")(x)
+                # feed into transformer block
+                x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x, mask=mask)
+                # append to list of transformers for each feature
+                transformers_of_feature.append(x)
+            # if feature has multiple transformers, concat and apply another transformer
+            if len(transformers_of_feature) > 1:
+                x = layers.Concatenate()(transformers_of_feature)
+                x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x, mask=mask)
+            # append to list of feature transformer tensors
+            feature_transf.append(x)
+        # concat feature transformer tensors
+        x = layers.Concatenate()(feature_transf)
+        
     
     # Stacking multiple transformer blocks
     for _ in range(num_layers):
-        x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x)
+        x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x, mask=mask)
     
     # Global average pooling
-    x = layers.GlobalAveragePooling1D()(x)
+    if masking:
+        x = MaskedGlobalAveragePooling1D()(x, mask=mask)
+    else:
+        x = layers.GlobalAveragePooling1D()(x)
     
     # Fully connected layers
     x = layers.Dropout(0.1)(x)

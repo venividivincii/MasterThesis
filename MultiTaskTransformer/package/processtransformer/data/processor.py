@@ -98,10 +98,6 @@ class LogsDataProcessor:
         else:
             raise ValueError("Unsupported file format. Please provide a .csv or .xes file.")
         
-        print("self._org_columns")
-        print(self._org_columns)
-        print("additional_cols")
-        print(additional_cols)
         
         df = df[self._org_columns + additional_cols]
         
@@ -151,8 +147,11 @@ class LogsDataProcessor:
         # Calculate the time passed since the first timestamp for each case_concept_name
         # added offset of +1 to distinguish from padding tokens
         # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(lambda x: x - x.min())
+        # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
+        #     lambda x: ((x - x.min()).dt.total_seconds().astype(int) + 1).astype(str)
+        # )
         df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
-            lambda x: ((x - x.min()).dt.total_seconds().astype(int) + 1).astype(str)
+            lambda x: ((x - x.min()).dt.total_seconds() / 86400.0 ).astype(float).astype(str)
         )
         
         # Add day_of_week
@@ -541,7 +540,7 @@ class LogsDataProcessor:
                         processed_col_lst.append( train_or_test_df[f"{col_str}_next-feature"] )
                         processed_col_lst.append( train_or_test_df[f"{col_str}_last-feature"] )
                         # convert series with prefix strings to List[List]
-                        prefix = train_or_test_df[f"{col_str}_prefix"].apply(lambda x: list(map(int, x.split()))).tolist()
+                        prefix = train_or_test_df[f"{col_str}_prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         
                         # TODO: Pad feature prefix
                         padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
