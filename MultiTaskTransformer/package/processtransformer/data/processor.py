@@ -150,8 +150,15 @@ class LogsDataProcessor:
         # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
         #     lambda x: ((x - x.min()).dt.total_seconds().astype(int) + 1).astype(str)
         # )
+        
+        # days with decimals
+        # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
+        #     lambda x: ((x - x.min()).dt.total_seconds() / 86400.0 ).astype(float).astype(str)
+        # )
+        
+        # whole days
         df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
-            lambda x: ((x - x.min()).dt.total_seconds() / 86400.0 ).astype(float).astype(str)
+            lambda x: (x - x.min()).dt.days.astype(str)
         )
         
         # Add day_of_week
@@ -327,13 +334,24 @@ class LogsDataProcessor:
     
     
 
-    def _pad_feature(self, prefix, max_length_prefix=None):
+    def _pad_feature(self, prefix, max_length_prefix=None, mask=None):
         if max_length_prefix is None:
             max_length_prefix = max(len(seq) for seq in prefix)
 
-        padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix)
+        # Pad the sequences
+        padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix, padding='post')
+        
+        if mask is None:
+            # Generate the mask based on the original sequence lengths
+            mask = np.array([[1 if i < len(seq) else 0 for i in range(max_length_prefix)] for seq in prefix])
+            # Expand mask dimensions for compatibility with multi-head attention
+            mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_length_prefix)
+            mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, 1, max_length_prefix)
+
+        # Convert padded sequences to string format (optional, if needed)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
-        return padded_prefix_str, max_length_prefix
+        
+        return padded_prefix_str, max_length_prefix, mask
 
 
     
@@ -496,7 +514,7 @@ class LogsDataProcessor:
         
             # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
             
-            def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None): 
+            def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None, mask=None): 
                 
                 for feature_type, feature_lst in self.additional_columns.items():
                     if feature in feature_lst: break
@@ -516,7 +534,7 @@ class LogsDataProcessor:
                                                 y_next_word_dict = metadata[feature]["y_next_word_dict"],
                                                 y_last_word_dict = metadata[feature]["y_last_word_dict"] )
                     # Pad feature prefix
-                    padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
+                    padded_prefix, max_length_prefix, mask = self._pad_feature(prefix, max_length_prefix, mask)
                     # build df for storage
                     processed_df = pd.DataFrame(
                         {
@@ -533,7 +551,7 @@ class LogsDataProcessor:
                     
                 # Temporal Feature
                 elif feature_type is Feature_Type.TIMESTAMP:
-                    def process_timestamp(col_str: str, max_length_prefix):
+                    def process_timestamp(col_str: str, max_length_prefix, mask=None):
                         # access feature data
                         processed_col_lst = []
                         processed_col_lst.append( train_or_test_df[f"{col_str}"]  )
@@ -543,9 +561,9 @@ class LogsDataProcessor:
                         prefix = train_or_test_df[f"{col_str}_prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         
                         # TODO: Pad feature prefix
-                        padded_prefix, max_length_prefix = self._pad_feature(prefix, max_length_prefix)
+                        padded_prefix, max_length_prefix, mask = self._pad_feature(prefix, max_length_prefix, mask)
                         processed_col_lst.append( padded_prefix )
-                        return processed_col_lst, max_length_prefix
+                        return processed_col_lst, max_length_prefix, mask
                     
                     def build_storage_df(col_str, col_lst):
                         return {
@@ -557,7 +575,7 @@ class LogsDataProcessor:
                         }
                     
                     # process temporal feature
-                    feature_lst, max_length_prefix = process_timestamp(feature, max_length_prefix)
+                    feature_lst, max_length_prefix, mask = process_timestamp(feature, max_length_prefix, mask)
                     
                     # initialize storage dict
                     storage_dict = { 'case_id': train_or_test_df['case_id'] }
@@ -566,13 +584,13 @@ class LogsDataProcessor:
                     
                     # process additional temporal day_of_week feature
                     if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
-                        day_of_week_lst, max_length_prefix = process_timestamp(f"{feature}##day_of_week", max_length_prefix)
+                        day_of_week_lst, max_length_prefix, mask = process_timestamp(f"{feature}##day_of_week", max_length_prefix, mask)
                         # update storage dict with additional day_of_week data
                         storage_dict.update( build_storage_df("day_of_week", day_of_week_lst) )
                         
                     # process additional temporal hour_of_day feature
                     if self._temporal_features[Temporal_Feature.HOUR_OF_DAY]:
-                        hour_of_day_lst, max_length_prefix = process_timestamp(f"{feature}##hour_of_day", max_length_prefix)
+                        hour_of_day_lst, max_length_prefix, mask = process_timestamp(f"{feature}##hour_of_day", max_length_prefix, mask)
                         # update storage dict with additional day_of_week data
                         storage_dict.update( build_storage_df("hour_of_day", hour_of_day_lst) )
                         
@@ -583,13 +601,17 @@ class LogsDataProcessor:
                     processed_df.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                     
                     
-                return max_length_prefix
+                return max_length_prefix, mask
             
-            
+            mask = None
             print("Writing results in csv-files...")
             for idx, feature in enumerate([item for sublist in self.additional_columns.values() for item in sublist]):
                 # only calculate max_length_prefix once
                 if idx == 0:
-                    max_length_prefix = store_processed_df_to_csv(feature, train_df, "train")
+                    max_length_prefix, mask = store_processed_df_to_csv(feature, train_df, "train", None, mask)
                 else: store_processed_df_to_csv(feature, train_df, "train", max_length_prefix)
-                store_processed_df_to_csv(feature, test_df, "test", max_length_prefix)
+                store_processed_df_to_csv(feature, test_df, "test", max_length_prefix, mask)
+            # store mask to csv
+            coded_json = json.dumps(mask.tolist())
+            with open(os.path.join(self._dir_path, "padding_mask.json"), "w") as metadata_file:
+                metadata_file.write(coded_json)

@@ -184,4 +184,7 @@ class LogsDataLoader:
                 feature_type_dict[feature_type].append(feature)
             self._feature_type_dict = feature_type_dict
         
-        return train_dfs, test_dfs, word_dicts, feature_type_dict
+        with open(os.path.join(self._dir_path, "padding_mask.json"), "r") as json_file:
+            mask = np.array( json.load(json_file) )
+        
+        return train_dfs, test_dfs, word_dicts, feature_type_dict, mask
