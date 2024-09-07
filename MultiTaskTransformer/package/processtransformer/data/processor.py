@@ -219,7 +219,7 @@ class LogsDataProcessor:
                     #         break
                     
                     coded_feature = {"type": feature_type.value}
-                    coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))})
+                    coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))}) # TODO: padding -1
                     coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
                     coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
                     coded_features.update({feature: coded_feature})
@@ -334,19 +334,29 @@ class LogsDataProcessor:
     
     
 
-    def _pad_feature(self, prefix, max_length_prefix=None, mask=None):
+    def _pad_feature(self, prefix, max_length_prefix=None, mask=None, categorical_feature=False):
         if max_length_prefix is None:
             max_length_prefix = max(len(seq) for seq in prefix)
 
         # Pad the sequences
-        padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix, padding='post')
+        if categorical_feature:
+            padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix, padding='post', value=0)
+        else:
+            padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix, padding='post', value=-1) # TODO: padding -1
         
         if mask is None:
             # Generate the mask based on the original sequence lengths
             mask = np.array([[1 if i < len(seq) else 0 for i in range(max_length_prefix)] for seq in prefix])
             # Expand mask dimensions for compatibility with multi-head attention
-            mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_length_prefix)
-            mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, 1, max_length_prefix)
+            # mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_length_prefix)
+            # mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, 1, max_length_prefix)
+        
+        # if mask is None:
+        #     # Generate the mask based on the original sequence lengths
+        #     mask = np.array([[1 if i < len(seq) else 0 for i in range(max_length_prefix)] for seq in prefix])
+        #     # Expand mask dimensions for compatibility with multi-head attention
+        #     mask = np.expand_dims(mask, axis=-1)  # Shape becomes (batch_size, max_length_prefix, 1)
+        #     mask = np.expand_dims(mask, axis=-1)  # Shape becomes (batch_size, max_length_prefix, 1, 1)
 
         # Convert padded sequences to string format (optional, if needed)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
@@ -534,7 +544,7 @@ class LogsDataProcessor:
                                                 y_next_word_dict = metadata[feature]["y_next_word_dict"],
                                                 y_last_word_dict = metadata[feature]["y_last_word_dict"] )
                     # Pad feature prefix
-                    padded_prefix, max_length_prefix, mask = self._pad_feature(prefix, max_length_prefix, mask)
+                    padded_prefix, max_length_prefix, mask = self._pad_feature(prefix, max_length_prefix, mask, True)
                     # build df for storage
                     processed_df = pd.DataFrame(
                         {
