@@ -168,12 +168,11 @@ class ModelWrapper():
             self.model_wrapper = model_wrapper
             self.supports_masking = True
             self.mask = None
-            # self.masking_layer = layers.Masking(mask_value=-1)
             
         def call(self, inputs):
             self.mask = tf.not_equal(inputs, -1)
-            self.mask = tf.cast(self.mask, tf.float32)
-            inputs = layers.Multiply()([inputs, self.mask])
+            casted_mask = tf.cast(self.mask, tf.float32)
+            inputs = layers.Multiply()([inputs, casted_mask])
             
             return inputs
         
@@ -323,11 +322,13 @@ class ModelWrapper():
                             temporal_inputs = prepare_temporal_input(feature)
                             # extend inputs_layers with temporal inputs
                             inputs_layers.extend(temporal_inputs)
+                            # expand dim from (None, max_case_length) to (None, max_case_length, 1) for compatability with position embedding layer
+                            temporal_inputs = [tf.expand_dims(x, axis=-1) for x in temporal_inputs]
+                            # TODO: Generate mask
                             if self.masking:
-                                # TODO: Generate mask
                                 temporal_inputs = [ModelWrapper.NumericalMaskGeneration(self)(x) for x in temporal_inputs]
-                            # extend feature_tensors with temporal inputs
-                            feature_tensors.extend(temporal_inputs)
+                            # append temporal_inputs to feature_tensors
+                            feature_tensors.append(temporal_inputs)
                             
                             
                 
@@ -379,8 +380,12 @@ class ModelWrapper():
         if model_architecture is Model_Architecture.COMMON_POSEMBS_TRANSF:
             # flatten feature_tensors
             feature_tensors = [item for sublist in feature_tensors for item in sublist]
-            # concat categorical feature layers
+            for feature_tensor in feature_tensors:
+                print(f"Shape of tensor before concat: {feature_tensor.shape}")
+                print(feature_tensor)
+            # concat feature layers
             x = layers.Concatenate()(feature_tensors)
+            print(f"Shape of tensor after concat: {x.shape}")
             # add position embedding to the concatenated layers
             x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1],
                                                name="position-embedding_common")(x)
