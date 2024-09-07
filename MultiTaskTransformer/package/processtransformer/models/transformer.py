@@ -115,41 +115,11 @@ class ModelWrapper():
         def __init__(self, model_wrapper, vocab_size, embed_dim, name):
             super(ModelWrapper.TokenEmbedding, self).__init__()
             self.model_wrapper = model_wrapper
-            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, name=name)
+            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim, name=name, mask_zero=model_wrapper.masking)
             self.supports_masking = True
             
-        def call(self, inputs, mask=None):
-            embeddings = self.token_emb(inputs)
-            
-            # Ensure the custom mask is propagated
-            # if self.mask is not None:
-            #     mask = self.mask
-            
-            return embeddings#, mask  # Return token embeddings
-        
-        def compute_mask(self, inputs, mask=None):
-            # print("Propagated Mask Token Embedding")
-            # print(f"Mask shape: {mask.shape}")
-            # print(f"Inputs shape: {inputs.shape}")
-            # Get the mask from the embedding layer
-            
-            # if mask is not None:
-            # Expand mask to fit attention layer's expected shape
-            # mask = tf.expand_dims(mask, axis=1)  # (batch_size, 1, seq_len)
-            # mask = tf.expand_dims(mask, axis=-1)  # (batch_size, 1, seq_len, 1)
-            
-            # print("Propagated Mask Token Embedding Layer:")
-            # print(f"Mask shape: {mask.shape}")
-            # print(f"Inputs shape: {inputs.shape}")
-            
-            if self.model_wrapper.masking:
-                mask = tf.math.not_equal(inputs, -1)
-                
-                print("Propagated Mask Token Embedding Mask:")
-                print(f"Mask shape: {mask.shape}")
-                print(f"Inputs shape: {inputs.shape}")
-                
-            return mask
+        def call(self, inputs):
+            return self.token_emb(inputs)
         
         
     class PositionEmbedding(layers.Layer):
@@ -160,11 +130,10 @@ class ModelWrapper():
             maxlen (int): Maximum length of the sequences.
             embed_dim (int): Dimensionality of the embedding space.
         """
-        def __init__(self, model_wrapper, maxlen, embed_dim, name, num_heads):
+        def __init__(self, model_wrapper, maxlen, embed_dim, name):
             super(ModelWrapper.PositionEmbedding, self).__init__()
             self.model_wrapper = model_wrapper
             self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim, name=name)
-            self.num_heads = num_heads
             self.supports_masking = True
             
         def call(self, inputs, mask=None):
@@ -185,39 +154,35 @@ class ModelWrapper():
             return inputs + positions  # Add position embeddings to the input tensor
         
         def compute_mask(self, inputs, mask=None):
-            
             if self.model_wrapper.masking:
                 print("Propagated Mask PositionEmbeddingLayer")
                 print(f"Mask shape: {mask.shape}")
                 print(f"Inputs shape: {inputs.shape}")
-            # Return the mask unchanged
-            
-            # TODO: Expand mask to fit attention layer's expected shape
-            # mask = tf.expand_dims(mask, axis=1)  # (batch_size, 1, seq_len)
-            # mask = tf.tile(mask, [1, 4, 1])
-            # mask = tf.broadcast_to(mask, (tf.shape(mask)[0], 4, tf.shape(mask)[2], tf.shape(mask)[2]))  # (batch_size, 1, seq_len, seq_len)
             return mask
         
         
-    # only ensures propagation of the mask through keras
-    class MaskPropagation(layers.Layer):
-        def __init__(self, model_wrapper, mask):
-            super(ModelWrapper.MaskPropagation, self).__init__()
+    # generates a mask for numerical inputs
+    class NumericalMaskGeneration(layers.Layer):
+        def __init__(self, model_wrapper):
+            super(ModelWrapper.NumericalMaskGeneration, self).__init__()
             self.model_wrapper = model_wrapper
-            self.mask = mask
             self.supports_masking = True
+            self.mask = None
+            # self.masking_layer = layers.Masking(mask_value=-1)
             
         def call(self, inputs):
-            # Ensure mask is recomputed and returned here
-            self.add_update(self.compute_mask(inputs))
+            self.mask = tf.not_equal(inputs, -1)
+            self.mask = tf.cast(self.mask, tf.float32)
+            inputs = layers.Multiply()([inputs, self.mask])
+            
             return inputs
         
         def compute_mask(self, inputs, mask=None):
-            mask = self.mask
-            print("Propagated Mask MaskPropagationLayer")
-            print(f"Mask shape: {mask.shape}")
-            print(f"Inputs shape: {inputs.shape}")
-            # Return the mask unchanged
+            if self.model_wrapper.masking:
+                mask = self.mask
+                print("Propagated Mask NumericalMaskGeneration Layer")
+                print(f"Mask shape: {mask.shape}")
+                print(f"Inputs shape: {inputs.shape}")
             return mask
         
         
@@ -283,319 +248,207 @@ class ModelWrapper():
         
 
     # TODO: vocab_size to list of vocab_sizesnum_classes_list
-    # def get_model(input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
-    #               feature_type_dict: Dict[Feature_Type, List[str]], temporal_features: Dict[Temporal_Feature, bool],
-    #               model_architecture: Model_Architecture,
-    #               embed_dim=36, num_heads=4, ff_dim=64, num_layers=1, mask=None):
-    #     """
-    #     Constructs the next categorical prediction model using a transformer architecture.
-        
-    #     Args:
-    #         max_case_length (int): Maximum length of the sequences (cases).
-    #         embed_dim (int): Dimensionality of the embeddings. Defaults to 36.
-    #         num_heads (int): Number of attention heads. Defaults to 4.
-    #         ff_dim (int): Dimensionality of the feed-forward layer. Defaults to 64.
-    #         num_layers (int): Number of transformer blocks. Defaults to 1.
-        
-    #     Returns:
-    #         tf.keras.Model: Compiled transformer model for next categorical prediction.
-    #     """
-        
-    #     def prepare_categorical_input(feature: str, mask):
-    #         # generate input layer for categorical feature
-    #         categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
-    #         # do token embedding for categorical feature
-    #         categorical_emb = TokenEmbedding(vocab_size = len(word_dicts[feature]["x_word_dict"]),
-    #                                         embed_dim = embed_dim,
-    #                                         name = f"{feature}_token-embeddings",
-    #                                         mask = mask
-    #                                         )(categorical_input)
-    #         return categorical_input, [categorical_emb]
-        
-        
-    #     def prepare_temporal_input(feature):
-    #         temporal_inputs = []
-    #         # Input Layer for temporal feature
-    #         temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
-    #         # append temporal feature to temporal inputs
-    #         temporal_inputs.append(temporal_input)
-
-    #         # if day_of_week is used as additional temp feature
-    #         if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
-    #             temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
-    #             temporal_inputs.append(temporal_input_day_of_week)
-    #         # if hour_of_day is used as additional temp feature
-    #         if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
-    #             temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
-    #             temporal_inputs.append(temporal_input_hour_of_day)
-                
-    #         return temporal_inputs
-        
-        
-    #     def prepare_inputs(mask):
-    #         inputs_layers, temporal_tensors, feature_tensors = [], [], []
-    #         temp_feature_exists = False
-            
-    #         for feature in input_columns:
-    #             for feature_type, feature_lst in feature_type_dict.items():
-    #                 if feature in feature_lst:
-    #                     # feature is categorical
-    #                     if feature_type is Feature_Type.CATEGORICAL:
-    #                         categorical_input, categorical_embs = prepare_categorical_input(feature, mask)
-    #                         # append input layer to inputs
-    #                         inputs_layers.append(categorical_input)
-    #                         # append categorical token embedding to feature_tensors
-    #                         feature_tensors.append(categorical_embs)
-                            
-    #                     # feature is temporal
-    #                     elif feature_type is Feature_Type.TIMESTAMP:
-    #                         temp_feature_exists = True
-    #                         temporal_inputs = prepare_temporal_input(feature)
-    #                         # append temporal inputs to inputs
-    #                         inputs_layers.extend(temporal_inputs)
-    #                         # propagate masks for inputs
-    #                         for idx, temporal_input in enumerate(temporal_inputs):
-    #                             temporal_inputs[idx] = MaskPropagation(mask)(temporal_input)
-                            
-    #                         # append temporal inputs to temporal layers
-    #                         temporal_tensors.append(temporal_inputs)
-                            
-                            
-                
-    #         if temp_feature_exists:
-    #             # flatten temporal tensors
-    #             flattened_temporal_tensors = [item for sublist in temporal_tensors for item in sublist]
-                
-    #             # calculate the sum of temporal_layers
-    #             sum_temp_tensors = len(flattened_temporal_tensors)
-                
-    #             # concat temporal layers
-    #             temporal_tensors_concat = layers.Concatenate()( flattened_temporal_tensors )
-                
-    #             # reshape temporal layers for compatability with other layers
-    #             temporal_tensors_concat = layers.Reshape(( 14, sum_temp_tensors ))(temporal_tensors_concat)
-                
-    #             # split concatenated temporal layers again
-    #             splitted_temporal_tensors = tf.split(temporal_tensors_concat, num_or_size_splits=sum_temp_tensors, axis=-1)
-                
-                
-    #             # bring prepared temporal layers back to the shape of temporal_layers (list of lists)
-    #             prepared_temporal_tensors = []
-    #             index = 0
-    #             for sublist in temporal_tensors:
-    #                 length = len(sublist)
-    #                 prepared_temporal_tensors.append(splitted_temporal_tensors[index:index + length])
-    #                 index += length
-    #             # append temporal tensors to feature tensors
-    #             feature_tensors.extend(prepared_temporal_tensors)
-            
-    #         return inputs_layers, feature_tensors
-                            
-    #     ############################################################################################
-
-    #     print("Creating model...")
-    #     original_mask = None
-        
-    #     if mask is None:
-    #         print("no masking applied")
-    #     else: print("masking applied")
-        
-    #     # Convert mask to a TensorFlow tensor
-    #     if mask is not None:
-    #         mask = tf.convert_to_tensor(mask)
-    #         original_mask = mask
-            
-    #         # Expand dims for num_head
-    #         mask = tf.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_case_length)
-    #         # Broadcast the mask across the sequence length dimension
-    #         mask = tf.expand_dims(mask, axis=2)  # Add another dimension (batch_size, 1, 1, max_case_length)
-    #         mask = tf.tile(mask, [1, num_heads, 14, 1])  # Broadcast to (batch_size, num_heads, max_case_length, max_case_length)
-            
-    #         # mask = tf.transpose(mask, perm=[0, 1, 3, 3])
-    #         # mask = tf.tile(mask, [1, num_heads, max_case_length, 1])
-            
-            
-    #     print(f"--------- ORIGINAL MASKING SHAPE: {original_mask.shape} ---------------")
-    #     print(f"--------- TRANSFORMER MASKING SHAPE: {mask.shape} ---------------")
-            
-    #     # prepare inputs
-    #     inputs_layers, feature_tensors = prepare_inputs(mask)
-        
-    #     # common embeddings and transformers for all features
-    #     if model_architecture is Model_Architecture.COMMON_POSEMBS_TRANSF:
-    #         # flatten feature_tensors
-    #         feature_tensors = [item for sublist in feature_tensors for item in sublist]
-    #         # concat categorical feature layers
-    #         x = layers.Concatenate()(feature_tensors)
-    #         # add position embedding to the concatenated layers
-    #         pos_emb = PositionEmbedding(maxlen=max_case_length, embed_dim=x.shape[-1], name="position-embedding_common", num_heads=num_heads)
-    #         x = pos_emb(x)
-    #         # print(f"Pos Emb direct call: {pos_emb.mask.shape}")
-            
-    #         # x = PositionEmbedding(maxlen=max_case_length, embed_dim=x.shape[-1], name="position-embedding_common", num_heads=num_heads)(x)
-            
-    #     # seperate positional embeddings and common transformer for all features
-    #     elif model_architecture is Model_Architecture.SEPERATE_POSEMBS:
-    #         feature_embs = []
-    #         for idx, tensors_of_feature in enumerate(feature_tensors):
-    #             # concat tensors of each feature
-    #             x = layers.Concatenate()(tensors_of_feature)
-    #             # add position embedding
-    #             x = PositionEmbedding(maxlen=max_case_length, embed_dim=x.shape[-1], name=f"position-embedding_feature_{idx}")(x)
-    #             # append to list of feature_embs
-    #             feature_embs.append(x)
-    #         # concat feature embs
-    #         x = layers.Concatenate()(feature_embs)
-            
-    #     # seperate positional embeddings and transformers for each feature
-    #     elif model_architecture is Model_Architecture.SEPERATE_TRANSF:
-    #         feature_transf = []
-    #         for idx, tensors_of_feature in enumerate(feature_tensors):
-    #             # concat tensors of each feature
-    #             x = layers.Concatenate()(tensors_of_feature)
-    #             # add position embeddings
-    #             x = PositionEmbedding(maxlen=max_case_length, embed_dim=x.shape[-1], name=f"position-embedding_feature_{idx}")(x)
-    #             # feed into transformer block
-    #             x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x, mask=mask)
-    #             # append to list of feature transformer tensors
-    #             feature_transf.append(x)
-    #         # concat feature transformer tensors
-    #         x = layers.Concatenate()(feature_transf)
-            
-            
-    #     # seperate positional embeddings and transformers for each feature
-    #     elif model_architecture is Model_Architecture.TIME_TARGET:
-    #         feature_transf = []
-    #         for idx, tensors_of_feature in enumerate(feature_tensors):
-    #             transformers_of_feature = []
-    #             for x in tensors_of_feature:
-    #                 # add position embeddings
-    #                 x = PositionEmbedding(maxlen=max_case_length, embed_dim=x.shape[-1], name=f"position-embedding_feature_{idx}")(x)
-    #                 # feed into transformer block
-    #                 print(f"Feature {idx}")
-    #                 print(x.shape)
-    #                 # print("mask shape")
-    #                 # print(x.compute_mask(inputs=x).shape)
-    #                 x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x)
-    #                 # append to list of transformers for each feature
-    #                 transformers_of_feature.append(x)
-    #             # if feature has multiple transformers, concat and apply another transformer
-    #             if len(transformers_of_feature) > 1:
-    #                 x = layers.Concatenate()(transformers_of_feature)
-    #                 x = MaskPropagation(mask)(x) # TODO: test this
-    #                 print(f"Feature {idx}")
-    #                 print(x.shape)
-    #                 # print("mask shape")
-    #                 # print(x.compute_mask(inputs=x).shape)
-    #                 x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x, mask=mask)
-    #             # append to list of feature transformer tensors
-    #             feature_transf.append(x)
-    #         # concat feature transformer tensors
-    #         x = layers.Concatenate()(feature_transf)
-            
-    #     print("last transformer")
-    #     print(x.shape)
-    #     # x = MaskPropagation(mask)(x)
-        
-    #     # print("mask shape")
-    #     # print(x.compute_mask(inputs=x).shape)
-    #     # Stacking multiple transformer blocks
-    #     for _ in range(num_layers):
-    #         x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x)
-    #         # x = TransformerBlock(x.shape[-1], num_heads, ff_dim)(x, mask=None)
-        
-    #     # Global average pooling
-    #     # if mask is not None:
-    #     #     x = MaskedGlobalAveragePooling1D()(x, mask)
-    #     # else:
-    #     print(f"original mask: {original_mask.shape}")
-    #     pooling_mask = tf.expand_dims(original_mask, axis=-1)
-    #     pooling_mask = tf.tile(pooling_mask, [1, 444, 1]) # TODO: TEST
-    #     print(f"pooling mask: {pooling_mask.shape}")
-    #     mask_propagation_layer = MaskPropagation(pooling_mask)
-    #     x = mask_propagation_layer(x)
-    #     print(f"propagation Mask direct call: {mask_propagation_layer.compute_mask(x, None).shape}")
-    #     # x = MaskPropagation(pooling_mask)(x)
-        
-    #     print("bla")
-        
-    #     x = MaskedGlobalAveragePooling1D()(x, pooling_mask)
-    #     # x = layers.GlobalAveragePooling1D()(x)
-        
-    #     # Fully connected layers
-    #     x = layers.Dropout(0.1)(x)
-    #     x = layers.Dense(64, activation="relu")(x)
-    #     x = layers.Dropout(0.1)(x)
-        
-    #     # Output layers for categorical features
-    #     outputs = []
-    #     for feature, target in target_columns.items():
-    #         for feature_type, feature_lst in feature_type_dict.items():
-    #             if feature in feature_lst:
-    #                 if feature_type is Feature_Type.CATEGORICAL:
-    #                     if target == Target.NEXT_FEATURE: dict_str = "y_next_word_dict"
-    #                     elif target == Target.LAST_FEATURE: dict_str = "y_last_word_dict"
-    #                     else: raise ValueError("Target type is not known.")
-    #                     output_dim = len(word_dicts[feature][dict_str])
-    #                     outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x) )
-    #                 if feature_type is Feature_Type.TIMESTAMP:
-    #                     outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x) )
-        
-        
-        
-    #     # Model definition
-    #     transformer = Model(inputs=inputs_layers, outputs=outputs, name="next_categorical_transformer")
-        
-    #     return transformer
-
-
-
-    # TODO: vocab_size to list of vocab_sizesnum_classes_list
     def get_model(self, input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
-                feature_type_dict: Dict[Feature_Type, List[str]], temporal_features: Dict[Temporal_Feature, bool],
-                model_architecture: Model_Architecture,
-                embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+                  feature_type_dict: Dict[Feature_Type, List[str]], temporal_features: Dict[Temporal_Feature, bool],
+                  model_architecture: Model_Architecture,
+                  embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+        """
+        Constructs the next categorical prediction model using a transformer architecture.
         
+        Args:
+            max_case_length (int): Maximum length of the sequences (cases).
+            embed_dim (int): Dimensionality of the embeddings. Defaults to 36.
+            num_heads (int): Number of attention heads. Defaults to 4.
+            ff_dim (int): Dimensionality of the feed-forward layer. Defaults to 64.
+            num_layers (int): Number of transformer blocks. Defaults to 1.
+        
+        Returns:
+            tf.keras.Model: Compiled transformer model for next categorical prediction.
+        """
+        
+        def prepare_categorical_input(feature: str):
+            # generate input layer for categorical feature
+            categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+            # do token embedding for categorical feature
+            categorical_emb = ModelWrapper.TokenEmbedding(model_wrapper = self,
+                                                            vocab_size = len(word_dicts[feature]["x_word_dict"]),
+                                                            embed_dim = embed_dim,
+                                                            name = f"{feature}_token-embeddings"
+                                                            )(categorical_input)
+            return categorical_input, [categorical_emb]
+        
+        
+        def prepare_temporal_input(feature):
+            temporal_inputs = []
+            # Input Layer for temporal feature
+            temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+            # temporal_input = ModelWrapper.NumericalMaskGeneration(self)(temporal_input)
+            # append temporal feature to temporal inputs
+            temporal_inputs.append(temporal_input)
+
+            # if day_of_week is used as additional temp feature
+            if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
+                temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
+                # Generate mask
+                temporal_input_day_of_week = ModelWrapper.NumericalMaskGeneration(self)(temporal_input_day_of_week)
+                temporal_inputs.append(temporal_input_day_of_week)
+            # if hour_of_day is used as additional temp feature
+            if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
+                temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
+                # Generate mask
+                temporal_input_hour_of_day = ModelWrapper.NumericalMaskGeneration(self)(temporal_input_hour_of_day)
+                temporal_inputs.append(temporal_input_hour_of_day)
+                
+            return temporal_inputs
+        
+        
+        def prepare_inputs():
+            inputs_layers, feature_tensors = [], []
+            temp_feature_exists = False
+            
+            for feature in input_columns:
+                for feature_type, feature_lst in feature_type_dict.items():
+                    if feature in feature_lst:
+                        # feature is categorical
+                        if feature_type is Feature_Type.CATEGORICAL:
+                            categorical_input, categorical_embs = prepare_categorical_input(feature)
+                            # append input layer to inputs
+                            inputs_layers.append(categorical_input)
+                            # append categorical token embedding to feature_tensors
+                            feature_tensors.append(categorical_embs)
+                            
+                        # feature is temporal
+                        elif feature_type is Feature_Type.TIMESTAMP:
+                            temp_feature_exists = True
+                            temporal_inputs = prepare_temporal_input(feature)
+                            # extend inputs_layers with temporal inputs
+                            inputs_layers.extend(temporal_inputs)
+                            if self.masking:
+                                # TODO: Generate mask
+                                temporal_inputs = [ModelWrapper.NumericalMaskGeneration(self)(x) for x in temporal_inputs]
+                            # extend feature_tensors with temporal inputs
+                            feature_tensors.extend(temporal_inputs)
+                            
+                            
+                
+            # if temp_feature_exists:
+            #     # flatten temporal tensors
+            #     flattened_temporal_tensors = [item for sublist in temporal_tensors for item in sublist]
+                
+            #     # calculate the sum of temporal_layers
+            #     sum_temp_tensors = len(flattened_temporal_tensors)
+                
+            #     # concat temporal layers
+            #     temporal_tensors_concat = layers.Concatenate()( flattened_temporal_tensors )
+                
+            #     # reshape temporal layers for compatability with other layers
+            #     temporal_tensors_concat = layers.Reshape(( 14, sum_temp_tensors ))(temporal_tensors_concat)
+                
+            #     # split concatenated temporal layers again
+            #     splitted_temporal_tensors = tf.split(temporal_tensors_concat, num_or_size_splits=sum_temp_tensors, axis=-1)
+                
+                
+            #     # bring prepared temporal layers back to the shape of temporal_layers (list of lists)
+            #     prepared_temporal_tensors = []
+            #     index = 0
+            #     for sublist in temporal_tensors:
+            #         length = len(sublist)
+            #         prepared_temporal_tensors.append(splitted_temporal_tensors[index:index + length])
+            #         index += length
+            #     # append temporal tensors to feature tensors
+            #     feature_tensors.extend(prepared_temporal_tensors)
+            
+            
+            return inputs_layers, feature_tensors
+                            
+        ############################################################################################
+
+        print("Creating model...")
+
+
         if self.masking:
             print("Masking active.")
         else:
             print("Masking not active.")
+
+            
+        # prepare inputs
+        inputs_layers, feature_tensors = prepare_inputs()
         
+        # common embeddings and transformers for all features
+        if model_architecture is Model_Architecture.COMMON_POSEMBS_TRANSF:
+            # flatten feature_tensors
+            feature_tensors = [item for sublist in feature_tensors for item in sublist]
+            # concat categorical feature layers
+            x = layers.Concatenate()(feature_tensors)
+            # add position embedding to the concatenated layers
+            x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1],
+                                               name="position-embedding_common")(x)
+            
+        # seperate positional embeddings and common transformer for all features
+        elif model_architecture is Model_Architecture.SEPERATE_POSEMBS:
+            feature_embs = []
+            for idx, tensors_of_feature in enumerate(feature_tensors):
+                # concat tensors of each feature
+                x = layers.Concatenate()(tensors_of_feature)
+                # add position embedding
+                x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1],
+                                                   name=f"position-embedding_feature_{idx}")(x)
+                # append to list of feature_embs
+                feature_embs.append(x)
+            # concat feature embs
+            x = layers.Concatenate()(feature_embs)
+            
+        # seperate positional embeddings and transformers for each feature
+        elif model_architecture is Model_Architecture.SEPERATE_TRANSF:
+            feature_transf = []
+            for idx, tensors_of_feature in enumerate(feature_tensors):
+                # concat tensors of each feature
+                x = layers.Concatenate()(tensors_of_feature)
+                # add position embeddings
+                x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1],
+                                                   name=f"position-embedding_feature_{idx}")(x)
+                # feed into transformer block
+                x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+                # append to list of feature transformer tensors
+                feature_transf.append(x)
+            # concat feature transformer tensors
+            x = layers.Concatenate()(feature_transf)
+            
+            
+        # seperate positional embeddings and transformers for each feature
+        elif model_architecture is Model_Architecture.TIME_TARGET:
+            feature_transf = []
+            for idx, tensors_of_feature in enumerate(feature_tensors):
+                transformers_of_feature = []
+                for x in tensors_of_feature:
+                    # add position embeddings
+                    x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1], name=f"position-embedding_feature_{idx}")(x)
+                    # feed into transformer block
+                    print(f"Feature {idx}")
+                    print(x.shape)
+                    x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+                    # append to list of transformers for each feature
+                    transformers_of_feature.append(x)
+                # if feature has multiple transformers, concat and apply another transformer
+                if len(transformers_of_feature) > 1:
+                    x = layers.Concatenate()(transformers_of_feature)
+                    print(f"Feature {idx}")
+                    print(x.shape)
+                    x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+                # append to list of feature transformer tensors
+                feature_transf.append(x)
+            # concat feature transformer tensors
+            x = layers.Concatenate()(feature_transf)
+            
+        print("last transformer")
+        print(x.shape)
         
-        inputs_layers = []
-        
-        for feature in input_columns:
-            for feature_type, feature_lst in feature_type_dict.items():
-                if feature in feature_lst:
-                    # feature is categorical
-                    if feature_type is Feature_Type.CATEGORICAL:
-                        
-                        # generate input layer for categorical feature
-                        categorical_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
-                        inputs_layers.append(categorical_input)
-                        # do token embedding for categorical feature
-                        x = ModelWrapper.TokenEmbedding(model_wrapper = self,
-                                                        vocab_size = len(word_dicts[feature]["x_word_dict"]),
-                                                        embed_dim = embed_dim,
-                                                        name = f"{feature}_token-embeddings"
-                                                        )(categorical_input)
-                        
-        x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1],
-                                           name="position-embedding", num_heads=num_heads)(x)
-        x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
-        
-                
-        # print(f"original mask: {original_mask.shape}")
-        # pooling_mask = tf.expand_dims(original_mask, axis=-1)
-        # pooling_mask = tf.tile(pooling_mask, [1, 1, 1]) # TODO: TEST
-        # print(f"pooling mask: {pooling_mask.shape}")
-        # x = ModelWrapper.MaskPropagation(pooling_mask)(x)
-        # x = mask_propagation_layer(x)
-        # print(f"propagation Mask direct call: {mask_propagation_layer.compute_mask(x, None).shape}")       
-        
+        # Stacking multiple transformer blocks
+        for _ in range(num_layers):
+            x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+
         x = ModelWrapper.MaskedGlobalAveragePooling1D(self)(x)
-        
-        print(f"Shape after pooling: {x.shape}")
         
         # Fully connected layers
         x = layers.Dropout(0.1)(x)
@@ -612,18 +465,76 @@ class ModelWrapper():
                         elif target == Target.LAST_FEATURE: dict_str = "y_last_word_dict"
                         else: raise ValueError("Target type is not known.")
                         output_dim = len(word_dicts[feature][dict_str])
-                        # TODO: Debugging
-                        output_dense = layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x)
-                        print(f"Output_dense Shape: {output_dense.shape}")
-                        outputs.append(output_dense)
-                        # outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x) )
+                        outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x) )
                     if feature_type is Feature_Type.TIMESTAMP:
-                        output_dense = layers.Dense(1, activation="linear", name=f"output_{feature}")(x)
-                        print(f"Output_dense Shape: {output_dense.shape}")
-                        outputs.append(output_dense)
-                        # outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x) )
-                        
+                        outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x) )
+        
+        
+        
         # Model definition
         transformer = Model(inputs=inputs_layers, outputs=outputs, name="next_categorical_transformer")
         
         return transformer
+
+
+
+    # TODO: vocab_size to list of vocab_sizesnum_classes_list
+    # def get_model(self, input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
+    #             feature_type_dict: Dict[Feature_Type, List[str]], temporal_features: Dict[Temporal_Feature, bool],
+    #             model_architecture: Model_Architecture,
+    #             embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+        
+    #     if self.masking:
+    #         print("Masking active.")
+    #     else:
+    #         print("Masking not active.")
+        
+        
+    #     inputs_layers = []
+        
+    #     for feature in input_columns:
+    #         # Input Layer for temporal feature
+    #         x = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+    #         inputs_layers.append(x)
+    #         # Generate mask
+    #         if self.masking:
+    #             x = ModelWrapper.NumericalMaskGeneration(self)(x)
+                
+                        
+    #     x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1], name="position-embedding")(x)
+    #     x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)   
+        
+    #     x = ModelWrapper.MaskedGlobalAveragePooling1D(self)(x)
+        
+    #     print(f"Shape after pooling: {x.shape}")
+        
+    #     # Fully connected layers
+    #     x = layers.Dropout(0.1)(x)
+    #     x = layers.Dense(64, activation="relu")(x)
+    #     x = layers.Dropout(0.1)(x)
+        
+    #     # Output layers for categorical features
+    #     outputs = []
+    #     for feature, target in target_columns.items():
+    #         for feature_type, feature_lst in feature_type_dict.items():
+    #             if feature in feature_lst:
+    #                 if feature_type is Feature_Type.CATEGORICAL:
+    #                     if target == Target.NEXT_FEATURE: dict_str = "y_next_word_dict"
+    #                     elif target == Target.LAST_FEATURE: dict_str = "y_last_word_dict"
+    #                     else: raise ValueError("Target type is not known.")
+    #                     output_dim = len(word_dicts[feature][dict_str])
+    #                     # TODO: Debugging
+    #                     output_dense = layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x)
+    #                     print(f"Output_dense Shape: {output_dense.shape}")
+    #                     outputs.append(output_dense)
+    #                     # outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x) )
+    #                 if feature_type is Feature_Type.TIMESTAMP:
+    #                     output_dense = layers.Dense(1, activation="linear", name=f"output_{feature}")(x)
+    #                     print(f"Output_dense Shape: {output_dense.shape}")
+    #                     outputs.append(output_dense)
+    #                     # outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x) )
+                        
+    #     # Model definition
+    #     transformer = Model(inputs=inputs_layers, outputs=outputs, name="next_categorical_transformer")
+        
+    #     return transformer
