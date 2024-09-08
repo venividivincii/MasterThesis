@@ -64,24 +64,9 @@ class ModelWrapper():
             self.supports_masking = True
 
         def call(self, inputs, training, mask=None):
-            
-            # if input feature dim (embed_dim) is not dividable by num_heads
-            # if inputs.shape[-1] % self.num_heads != 0:
-            #     # Calculate the next number divisible by num_heads
-            #     next_divisible = ((inputs.shape[-1] + self.num_heads - 1) // self.num_heads) * self.num_heads
-            #     inputs = layers.Dense(next_divisible)(inputs)
-            
-            
             if self.model_wrapper.masking:
                 # Expand dims for num_head
                 mask = tf.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_case_length)
-                # Broadcast the mask across the sequence length dimension
-                # mask = tf.expand_dims(mask, axis=2)  # Add another dimension (batch_size, 1, 1, max_case_length)
-                # mask = tf.tile(mask, [1, self.num_heads, 14, 1])  # Broadcast to (batch_size, num_heads, max_case_length, max_case_length)
-                
-                print("Mask for Transformer")
-                print(f"Mask shape: {mask.shape}")
-                print(f"Inputs shape: {inputs.shape}")
             
             # Apply multi-head attention with masking
             attn_output = self.att(inputs, inputs, attention_mask=mask)
@@ -288,14 +273,10 @@ class ModelWrapper():
             # if day_of_week is used as additional temp feature
             if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
                 temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
-                # Generate mask
-                temporal_input_day_of_week = ModelWrapper.NumericalMaskGeneration(self)(temporal_input_day_of_week)
                 temporal_inputs.append(temporal_input_day_of_week)
             # if hour_of_day is used as additional temp feature
             if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
                 temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
-                # Generate mask
-                temporal_input_hour_of_day = ModelWrapper.NumericalMaskGeneration(self)(temporal_input_hour_of_day)
                 temporal_inputs.append(temporal_input_hour_of_day)
                 
             return temporal_inputs
