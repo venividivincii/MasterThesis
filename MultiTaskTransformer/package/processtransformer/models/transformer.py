@@ -48,8 +48,8 @@ class ModelWrapper():
         
 
     class TransformerBlock(layers.Layer):
-        def __init__(self, model_wrapper, embed_dim, num_heads, ff_dim, rate=0.1, mask=None):
-            super(ModelWrapper.TransformerBlock, self).__init__()
+        def __init__(self, name, model_wrapper, embed_dim, num_heads, ff_dim, rate=0.1):
+            super(ModelWrapper.TransformerBlock, self).__init__(name=name)
             self.model_wrapper = model_wrapper
             self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
             self.ffn = tf.keras.Sequential(
@@ -59,14 +59,13 @@ class ModelWrapper():
             self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
             self.dropout1 = layers.Dropout(rate)
             self.dropout2 = layers.Dropout(rate)
-            self.mask = mask
             self.num_heads = num_heads
             self.supports_masking = True
 
         def call(self, inputs, training, mask=None):
             if self.model_wrapper.masking:
-                # Expand dims for num_head
-                mask = tf.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_case_length)
+                    # Expand dims for num_head
+                    mask = tf.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_case_length)
             
             # Apply multi-head attention with masking
             attn_output = self.att(inputs, inputs, attention_mask=mask)
@@ -77,15 +76,6 @@ class ModelWrapper():
             ffn_output = self.ffn(out1)
             ffn_output = self.dropout2(ffn_output, training=training)
             return self.layernorm2(out1 + ffn_output)
-
-        def compute_mask(self, inputs, mask=None):
-            if self.model_wrapper.masking:
-                # TODO: print mask shape
-                print("Propagated Mask Transformer")
-                print(f"Mask shape: {mask.shape}")
-                print(f"Inputs shape: {inputs.shape}")
-            # Ensure the masking is passed through to the next layers
-            return mask
 
 
     class TokenEmbedding(layers.Layer):
@@ -138,13 +128,6 @@ class ModelWrapper():
             positions = tf.expand_dims(positions, 0)  # Add a batch dimension (1, maxlen, embed_dim)
             return inputs + positions  # Add position embeddings to the input tensor
         
-        def compute_mask(self, inputs, mask=None):
-            if self.model_wrapper.masking:
-                print("Propagated Mask PositionEmbeddingLayer")
-                print(f"Mask shape: {mask.shape}")
-                print(f"Inputs shape: {inputs.shape}")
-            return mask
-        
         
     # generates a mask for numerical inputs
     class NumericalMaskGeneration(layers.Layer):
@@ -164,9 +147,6 @@ class ModelWrapper():
         def compute_mask(self, inputs, mask=None):
             if self.model_wrapper.masking:
                 mask = self.mask
-                print("Propagated Mask NumericalMaskGeneration Layer")
-                print(f"Mask shape: {mask.shape}")
-                print(f"Inputs shape: {inputs.shape}")
             return mask
         
         
@@ -196,10 +176,6 @@ class ModelWrapper():
             if self.model_wrapper.masking:
                 # Expand mask to match input shape
                 mask = tf.expand_dims(mask, axis=-1)
-                
-                print("Mask for MaskedGlobalAveragePooling1D")
-                print(f"Mask shape: {mask.shape}")
-                print(f"Inputs shape: {inputs.shape}")
                 mask = tf.cast(mask, dtype=inputs.dtype)
                 
                 # Apply the mask (zero out masked values)
@@ -221,13 +197,7 @@ class ModelWrapper():
                 return tf.reduce_mean(inputs, axis=1)
         
         def compute_mask(self, inputs, mask=None):
-            if self.model_wrapper.masking:
-                mask = tf.expand_dims(mask, axis=-1)
-                print("Propagated Mask MaskedGlobalAveragePooling1D")
-                print(f"Mask shape: {mask.shape}")
-                print(f"Inputs shape: {inputs.shape}")
-            # Return the mask unchanged
-            return None#mask
+            return None
         
         
 
@@ -266,7 +236,6 @@ class ModelWrapper():
             temporal_inputs = []
             # Input Layer for temporal feature
             temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
-            # temporal_input = ModelWrapper.NumericalMaskGeneration(self)(temporal_input)
             # append temporal feature to temporal inputs
             temporal_inputs.append(temporal_input)
 
@@ -305,42 +274,11 @@ class ModelWrapper():
                             inputs_layers.extend(temporal_inputs)
                             # expand dim from (None, max_case_length) to (None, max_case_length, 1) for compatability with position embedding layer
                             temporal_inputs = [tf.expand_dims(x, axis=-1) for x in temporal_inputs]
-                            # TODO: Generate mask
+                            # Generate mask
                             if self.masking:
                                 temporal_inputs = [ModelWrapper.NumericalMaskGeneration(self)(x) for x in temporal_inputs]
                             # append temporal_inputs to feature_tensors
                             feature_tensors.append(temporal_inputs)
-                            
-                            
-                
-            # if temp_feature_exists:
-            #     # flatten temporal tensors
-            #     flattened_temporal_tensors = [item for sublist in temporal_tensors for item in sublist]
-                
-            #     # calculate the sum of temporal_layers
-            #     sum_temp_tensors = len(flattened_temporal_tensors)
-                
-            #     # concat temporal layers
-            #     temporal_tensors_concat = layers.Concatenate()( flattened_temporal_tensors )
-                
-            #     # reshape temporal layers for compatability with other layers
-            #     temporal_tensors_concat = layers.Reshape(( 14, sum_temp_tensors ))(temporal_tensors_concat)
-                
-            #     # split concatenated temporal layers again
-            #     splitted_temporal_tensors = tf.split(temporal_tensors_concat, num_or_size_splits=sum_temp_tensors, axis=-1)
-                
-                
-            #     # bring prepared temporal layers back to the shape of temporal_layers (list of lists)
-            #     prepared_temporal_tensors = []
-            #     index = 0
-            #     for sublist in temporal_tensors:
-            #         length = len(sublist)
-            #         prepared_temporal_tensors.append(splitted_temporal_tensors[index:index + length])
-            #         index += length
-            #     # append temporal tensors to feature tensors
-            #     feature_tensors.extend(prepared_temporal_tensors)
-            
-            
             return inputs_layers, feature_tensors
                             
         ############################################################################################
@@ -361,12 +299,8 @@ class ModelWrapper():
         if model_architecture is Model_Architecture.COMMON_POSEMBS_TRANSF:
             # flatten feature_tensors
             feature_tensors = [item for sublist in feature_tensors for item in sublist]
-            for feature_tensor in feature_tensors:
-                print(f"Shape of tensor before concat: {feature_tensor.shape}")
-                print(feature_tensor)
             # concat feature layers
             x = layers.Concatenate()(feature_tensors)
-            print(f"Shape of tensor after concat: {x.shape}")
             # add position embedding to the concatenated layers
             x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1],
                                                name="position-embedding_common")(x)
@@ -395,7 +329,7 @@ class ModelWrapper():
                 x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1],
                                                    name=f"position-embedding_feature_{idx}")(x)
                 # feed into transformer block
-                x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+                x = ModelWrapper.TransformerBlock(f"Seperate_Transformer_feature_{idx}", self, x.shape[-1], num_heads, ff_dim)(x)
                 # append to list of feature transformer tensors
                 feature_transf.append(x)
             # concat feature transformer tensors
@@ -407,32 +341,28 @@ class ModelWrapper():
             feature_transf = []
             for idx, tensors_of_feature in enumerate(feature_tensors):
                 transformers_of_feature = []
-                for x in tensors_of_feature:
+                for idx_sub, x in enumerate(tensors_of_feature):
+                    # reduce mask dim
+                    x = layers.Concatenate()([x])
                     # add position embeddings
                     x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1], name=f"position-embedding_feature_{idx}")(x)
                     # feed into transformer block
-                    print(f"Feature {idx}")
-                    print(x.shape)
-                    x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+                    x = ModelWrapper.TransformerBlock(f"Transformer_feature_{idx}_sub_{idx_sub}", self, x.shape[-1], num_heads, ff_dim)(x)
                     # append to list of transformers for each feature
                     transformers_of_feature.append(x)
                 # if feature has multiple transformers, concat and apply another transformer
                 if len(transformers_of_feature) > 1:
                     x = layers.Concatenate()(transformers_of_feature)
-                    print(f"Feature {idx}")
-                    print(x.shape)
-                    x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+                    x = ModelWrapper.TransformerBlock(f"Transformer_feature_{idx}_concat", self, x.shape[-1], num_heads, ff_dim)(x)
                 # append to list of feature transformer tensors
                 feature_transf.append(x)
             # concat feature transformer tensors
             x = layers.Concatenate()(feature_transf)
             
-        print("last transformer")
-        print(x.shape)
         
         # Stacking multiple transformer blocks
-        for _ in range(num_layers):
-            x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)
+        for idx, _ in enumerate(range(num_layers)):
+            x = ModelWrapper.TransformerBlock(f"Stacked_Transformer_{idx}", self, x.shape[-1], num_heads, ff_dim)(x)
 
         x = ModelWrapper.MaskedGlobalAveragePooling1D(self)(x)
         
