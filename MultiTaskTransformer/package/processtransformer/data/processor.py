@@ -625,3 +625,40 @@ class LogsDataProcessor:
             coded_json = json.dumps(mask.tolist())
             with open(os.path.join(self._dir_path, "padding_mask.json"), "w") as metadata_file:
                 metadata_file.write(coded_json)
+                
+                
+# Custom scaling function to exclude padding tokens (e.g., -1)
+def masked_standard_scaler(X, padding_value=-1):
+    # Create a mask for non-padding values
+    mask = X != padding_value
+    
+    # Calculate mean and standard deviation for non-padding values only
+    X_non_padding = X[mask]
+    mean = np.mean(X_non_padding, axis=0)
+    std = np.std(X_non_padding, axis=0)
+    
+    # Replace padding values with zero, and scale non-padding values
+    X_scaled = np.where(mask, (X - mean) / std, padding_value)
+    
+    return X_scaled
+
+
+def masked_min_max_scaler(X, padding_value=-1, feature_range=(0, 30)):
+    min_val, max_val = feature_range
+    
+    # Create a mask for non-padding values
+    mask = X != padding_value
+    
+    # Calculate min and max for non-padding values only
+    X_non_padding = X[mask]
+    X_min = np.min(X_non_padding, axis=0)
+    X_max = np.max(X_non_padding, axis=0)
+    
+    # Avoid division by zero when all values are the same
+    range_val = X_max - X_min
+    range_val = np.where(range_val == 0, 1, range_val)  # Use np.where to handle scalars and arrays
+    
+    # Scale non-padding values and leave padding values unchanged
+    X_scaled = np.where(mask, (X - X_min) / range_val * (max_val - min_val) + min_val, padding_value)
+    
+    return X_scaled

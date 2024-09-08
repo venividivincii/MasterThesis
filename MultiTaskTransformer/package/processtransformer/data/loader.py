@@ -26,6 +26,21 @@ class LogsDataLoader:
         self.input_columns: List[str] = input_columns
         self._temporal_features: Dict[Temporal_Feature, bool] = temporal_features
         self._feature_type_dict: Dict[ Feature_Type, List[str] ] = None
+        
+        
+    def standard_scaling(X, padding_value=-1):
+        # Create a mask for non-padding values
+        mask = X != padding_value
+        
+        # Calculate mean and standard deviation for non-padding values only
+        X_non_padding = X[mask]
+        mean = np.mean(X_non_padding, axis=0)
+        std = np.std(X_non_padding, axis=0)
+        
+        # Replace padding values with zero, and scale non-padding values
+        X_scaled = np.where(mask, (X - mean) / std, padding_value)
+        
+        return X_scaled
 
     # TODO: depreciated --> delete later
     def _process_additional_features(self, df: pd.DataFrame, fit: bool = True) -> Tuple[np.ndarray, int, int]:

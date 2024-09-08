@@ -7,7 +7,7 @@ from typing import List, Dict
 
 class MultiTaskLoss(layers.Layer):
     def __init__(self, is_regression, reduction='sum', **kwargs):
-        super(ModelWrapper.MultiTaskLoss, self).__init__(**kwargs)
+        super(MultiTaskLoss, self).__init__(**kwargs)
         self.is_regression = tf.constant(is_regression, dtype=tf.float32)
         self.n_tasks = len(is_regression)
         self.log_vars = self.add_weight(name='log_vars', shape=(self.n_tasks,), initializer='zeros', trainable=True)
