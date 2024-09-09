@@ -11,7 +11,7 @@ class MultiTaskLossLayer(layers.Layer):
         self.is_regression = tf.convert_to_tensor(is_regression, dtype=tf.float32)
         self.n_tasks = len(is_regression)
         self.log_vars = self.add_weight(name='log_vars', shape=(self.n_tasks,), initializer='zeros', trainable=True)
-        self.mse_loss = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE)
+        self.logcosh_loss = tf.keras.losses.LogCosh(reduction=tf.keras.losses.Reduction.NONE)
         self.cross_entropy_loss = tf.keras.losses.SparseCategoricalCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
 
     def call(self, y_trues, y_preds):
@@ -19,14 +19,11 @@ class MultiTaskLossLayer(layers.Layer):
         for i in range(self.n_tasks):
             y_true = y_trues[i]
             y_pred = y_preds[i]
-
             if tf.shape(y_pred)[-1] == 1:  # Regression task
-                task_loss = self.mse_loss(y_true, y_pred)
+                task_loss = self.logcosh_loss(y_true, y_pred)
             else:  # Classification task
                 task_loss = self.cross_entropy_loss(y_true, y_pred)
-
             task_losses.append(task_loss)
-
         # Stack the losses into one tensor
         losses = tf.stack(task_losses, axis=-1)
 
@@ -34,7 +31,6 @@ class MultiTaskLossLayer(layers.Layer):
         stds = tf.sqrt(tf.exp(self.log_vars))
         coeffs = 1 / ((self.is_regression + 1) * stds**2)
         multi_task_losses = coeffs * losses + tf.math.log(stds)
-
         return tf.reduce_mean(multi_task_losses)  # Or sum based on preference
 
     def get_config(self):
