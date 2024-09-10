@@ -1,5 +1,9 @@
+import os
 import tensorflow as tf
 from tensorflow.keras import layers, Model
+import numpy as np
+from numpy.typing import NDArray
+from sklearn.model_selection import train_test_split
 from package.constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
 from typing import List, Dict
 
@@ -42,14 +46,35 @@ class MultiTaskLossLayer(layers.Layer):
 
 
 class ModelWrapper():
-    def __init__(self, model_architecture: Model_Architecture, max_case_length: int, masking: bool = False,
-                 embed_dim=36, num_heads=4, ff_dim=64):
-        self.model_architecture = model_architecture
+    def __init__(self,
+                dataset_name: str,
+                input_columns: List[str],
+                target_columns: dict[str, Target],
+                word_dicts: dict[str, Dict[str, int]],
+                max_case_length: int,
+                feature_type_dict: Dict[Feature_Type, List[str]],
+                temporal_features: Dict[Temporal_Feature, bool],
+                model_architecture: type[Model_Architecture],
+                masking: bool = True
+                ):
+        
+        # constants
+        self.embed_dim: int = 36
+        self.num_heads: int = 4
+        self.ff_dim: int = 64
+        
+        self.dataset_name = dataset_name
+        self.input_columns = input_columns
+        self.target_columns = target_columns
+        self.word_dicts = word_dicts
         self.max_case_length = max_case_length
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.ff_dim = ff_dim
+        self.feature_type_dict = feature_type_dict
+        self.temporal_features = temporal_features
+        self.model_architecture = model_architecture
         self.masking = masking
+        
+        self.model: Model = None
+        self.history = None
         
         
 
@@ -400,63 +425,130 @@ class ModelWrapper():
 
 
 
-    # TODO: vocab_size to list of vocab_sizesnum_classes_list
-    # def get_model(self, input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
-    #             feature_type_dict: Dict[Feature_Type, List[str]], temporal_features: Dict[Temporal_Feature, bool],
-    #             model_architecture: Model_Architecture,
-    #             embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
+    def train_model(self,
+                    train_token_dict_x: dict[str, NDArray[np.float32]],
+                    train_token_dict_y: dict[str, NDArray[np.float32]],
+                    model_epochs: int,
+                    batch_size: int = 12,
+                    model_learning_rate: float = 0.001
+                    ):
         
-    #     if self.masking:
-    #         print("Masking active.")
-    #     else:
-    #         print("Masking not active.")
+        validation_split = 0.2
+        
+        self.model = self.get_model(
+                                input_columns=self.input_columns,
+                                target_columns=self.target_columns,
+                                word_dicts=self.word_dicts,
+                                max_case_length=self.max_case_length,
+                                feature_type_dict=self.feature_type_dict,
+                                temporal_features=self.temporal_features,
+                                model_architecture=self.model_architecture
+                                )
         
         
-    #     inputs_layers = []
-        
-    #     for feature in input_columns:
-    #         # Input Layer for temporal feature
-    #         x = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
-    #         inputs_layers.append(x)
-    #         # Generate mask
-    #         if self.masking:
-    #             x = ModelWrapper.NumericalMaskGeneration(self)(x)
+        # Check the number of target columns to determine if it's a multi-task or single-task problem
+        if len(self.target_columns) > 1:
+            print("Using Multi-Task Learning Setup")
+            # Multi-task scenario: use MultiTaskLoss
+            
+            # Define if output is regression task tasks
+            is_regression = []
+            for feature in self.target_columns.keys():
+                if feature in self.feature_type_dict[Feature_Type.CATEGORICAL]:
+                    is_regression.append(False)  # False for classification tasks
+                elif feature in self.feature_type_dict[Feature_Type.TIMESTAMP]:
+                    is_regression.append(True)  # True for regression tasks
+
+
+            # Custom loss function that integrates MultiTaskLossLayer
+            def multi_task_loss_fn(is_regression):
+                multi_task_loss_layer = MultiTaskLossLayer(is_regression)
+                def loss_fn(y_true, y_pred):
+                    # Since y_true and y_pred are passed separately for each output, we wrap them in a list
+                    y_trues = [y_true]
+                    y_preds = [y_pred]
+                    # Call the multi-task loss layer for a single task
+                    return multi_task_loss_layer(y_trues, y_preds)
+                return loss_fn
+            
+            # Define the loss functions for each output
+            losses = {}
+            for output_key, reg in zip(train_token_dict_y.keys(), is_regression):
+                losses.update({output_key: multi_task_loss_fn([reg])})
+
+            # Compile the model with the combined loss
+            self.model.compile(
+                                optimizer=tf.keras.optimizers.Adam(model_learning_rate),
+                                loss=losses#,
+                                #metrics=[combined_loss]
+                                )
+            
+        else:
+            print("Using Single-Task Learning Setup")
+            # Single-task scenario: use standard loss
+            target_feature = list(self.target_columns.keys())[0]
+            # get feature_type
+            for feature_type, feature_lst in self.additional_columns.items():
+                if target_feature in feature_lst: break
                 
-                        
-    #     x = ModelWrapper.PositionEmbedding(model_wrapper = self, maxlen=max_case_length, embed_dim=x.shape[-1], name="position-embedding")(x)
-    #     x = ModelWrapper.TransformerBlock(self, x.shape[-1], num_heads, ff_dim)(x)   
+            # if target is categorical
+            if feature_type is Feature_Type.CATEGORICAL:
+                # Classification task
+                self.model.compile(
+                    optimizer=tf.keras.optimizers.Adam(model_learning_rate),
+                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+                    metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
+                )
+                
+            # if target is temporal
+            elif feature_type is Feature_Type.TIMESTAMP:
+                # Regression task
+                self.model.compile(
+                    optimizer=tf.keras.optimizers.Adam(model_learning_rate),
+                    loss=tf.keras.losses.LogCosh(),
+                    metrics=[tf.keras.metrics.MeanAbsoluteError()]
+                )
+
+        # Train-validation split
+        first_key = next(iter(train_token_dict_x.keys()))
+        n_samples = train_token_dict_x[first_key].shape[0]
+        indices = np.arange(n_samples)
+        train_indices, val_indices = train_test_split(indices, test_size=validation_split, random_state=42)
+
+        # Split the data
+        train_token_dict_x_split = {key: x_data[train_indices] for key, x_data in train_token_dict_x.items()}
+        val_token_dict_x_split = {key: x_data[val_indices] for key, x_data in train_token_dict_x.items()}
+        train_token_dict_y_split = {key: y_data[train_indices] for key, y_data in train_token_dict_y.items()}
+        val_token_dict_y_split = {key: y_data[val_indices] for key, y_data in train_token_dict_y.items()}
+
+        # Define callbacks
+        early_stopping = tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=3,
+            restore_best_weights=True,
+            min_delta=0.001
+        )
+
+        model_specs_dir = os.path.join("datasets", self.dataset_name, "model_specs")
+        os.makedirs(model_specs_dir, exist_ok=True)
+
+        model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(model_specs_dir, "best_model.h5"),
+            save_weights_only=True,
+            monitor="val_loss",
+            mode="min", save_best_only=True)
+
+        # Train the model
+        print("----------------------------------------------------")
+        print("Training...")
+        self.history = self.model.fit(
+            x=train_token_dict_x_split,
+            y=train_token_dict_y_split,
+            validation_data=(val_token_dict_x_split, val_token_dict_y_split),
+            epochs=model_epochs, batch_size=batch_size, shuffle=True,
+            callbacks=[early_stopping, model_checkpoint_callback]
+        )
         
-    #     x = ModelWrapper.MaskedGlobalAveragePooling1D(self)(x)
+        return self.model, self.history
         
-    #     print(f"Shape after pooling: {x.shape}")
         
-    #     # Fully connected layers
-    #     x = layers.Dropout(0.1)(x)
-    #     x = layers.Dense(64, activation="relu")(x)
-    #     x = layers.Dropout(0.1)(x)
-        
-    #     # Output layers for categorical features
-    #     outputs = []
-    #     for feature, target in target_columns.items():
-    #         for feature_type, feature_lst in feature_type_dict.items():
-    #             if feature in feature_lst:
-    #                 if feature_type is Feature_Type.CATEGORICAL:
-    #                     if target == Target.NEXT_FEATURE: dict_str = "y_next_word_dict"
-    #                     elif target == Target.LAST_FEATURE: dict_str = "y_last_word_dict"
-    #                     else: raise ValueError("Target type is not known.")
-    #                     output_dim = len(word_dicts[feature][dict_str])
-    #                     # TODO: Debugging
-    #                     output_dense = layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x)
-    #                     print(f"Output_dense Shape: {output_dense.shape}")
-    #                     outputs.append(output_dense)
-    #                     # outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x) )
-    #                 if feature_type is Feature_Type.TIMESTAMP:
-    #                     output_dense = layers.Dense(1, activation="linear", name=f"output_{feature}")(x)
-    #                     print(f"Output_dense Shape: {output_dense.shape}")
-    #                     outputs.append(output_dense)
-    #                     # outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x) )
-                        
-    #     # Model definition
-    #     transformer = Model(inputs=inputs_layers, outputs=outputs, name="next_categorical_transformer")
-        
-    #     return transformer
