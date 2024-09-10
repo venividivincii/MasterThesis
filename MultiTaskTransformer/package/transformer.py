@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import layers, Model
-from ..constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
+from package.constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
 from typing import List, Dict
 
 

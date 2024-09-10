@@ -7,7 +7,7 @@ from sklearn import utils
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from typing import Dict, Tuple, Optional, List
 from numpy.typing import NDArray
-from ..constants import Feature_Type, Target, Temporal_Feature
+from package.constants import Feature_Type, Target, Temporal_Feature
 
 class LogsDataLoader:
     def __init__(self, name: str, input_columns: List[str],

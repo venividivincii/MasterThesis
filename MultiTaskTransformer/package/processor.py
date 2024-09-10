@@ -8,7 +8,7 @@ from multiprocessing import Pool
 from typing import List, Optional, Dict
 import pm4py
 import tensorflow as tf
-from ..constants import Feature_Type, Target, Temporal_Feature
+from package.constants import Feature_Type, Target, Temporal_Feature
 
 class LogsDataProcessor:
     def __init__(self, name: str, filepath: str, columns: List[str],
