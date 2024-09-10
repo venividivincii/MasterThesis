@@ -282,6 +282,7 @@ class LogsDataProcessor:
         Returns:
             pd.DataFrame: Processed dataframe.
         """
+        
         case_id = "case_concept_name"
         additional_columns = [item for sublist in self.additional_columns.values() for item in sublist]
         
@@ -295,7 +296,7 @@ class LogsDataProcessor:
                 if hour_of_day in df.columns: additional_columns.append(hour_of_day)
         
         # Prepare columns for the processed DataFrame
-        processed_columns = ["case_id"]
+        processed_columns = ["case_id", "timestamp"]
         for col in additional_columns:
             processed_columns.extend([col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
         
@@ -307,6 +308,7 @@ class LogsDataProcessor:
             case_df = df[df[case_id] == case]
             for i in range(len(case_df)-1):
                 row = [case]
+                row.extend([case_df.iloc[i]["time_timestamp"]])
                 for col in additional_columns:
                     original_value = case_df.iloc[i][col]
                     cat = case_df[col].to_list()
@@ -495,17 +497,21 @@ class LogsDataProcessor:
                         # append prepared temp feature data to df
                         df = pd.concat([df, prepared_temp_feature_df], axis=1)
             
-            # TODO: Exclude Sorting by earliest time_timestamp (groupby case_concept_name)?
-            # Get the earliest timestamp for each 'case_concept_name'
+            # Sorting by earliest time_timestamp (groupby case_concept_name)
             if self._sorting:
-                df = df.groupby('case_concept_name').apply(lambda x: x.sort_values('time_timestamp')).reset_index(drop=True)
-                # Sort the entire DataFrame by the earliest timestamp of each group
-                df = df.sort_values(by='time_timestamp').reset_index(drop=True)
+                df = _group_and_sort(df, "case_concept_name", "time_timestamp")
+                train_test_split_point = int(df["case_concept_name"].nunique() * train_test_ratio)
+            else:
+                # random train-test split
+                np.random.seed(42)
+                unique_cases = df["case_concept_name"].unique()
+                np.random.shuffle(unique_cases)
+                train_test_split_point = int(len(unique_cases) * train_test_ratio)
                 
-            # metadata = self._extract_logs_metadata(df)
-            train_test_split_point = int(abs(df["case_concept_name"].nunique() * train_test_ratio))
+            # train and test case_id lists
             train_list = df["case_concept_name"].unique()[:train_test_split_point]
             test_list = df["case_concept_name"].unique()[train_test_split_point:]
+            
             # run preprocessing
             print("Preprocessing...")
             # self._process_next_categorical(df, train_list, test_list)
@@ -525,6 +531,7 @@ class LogsDataProcessor:
             # write results in new dfs
             train_df = processed_prefix_df[processed_prefix_df["case_id"].isin(train_list)].copy()
             test_df = processed_prefix_df[processed_prefix_df["case_id"].isin(test_list)].copy()
+            
             # del dfs for memory
             del processed_prefix_df, df_split
         
@@ -556,6 +563,7 @@ class LogsDataProcessor:
                     processed_df = pd.DataFrame(
                         {
                             'case_id': train_or_test_df['case_id'],
+                            'timestamp': train_or_test_df['timestamp'],
                             feature: feature_values,
                             'Prefix': padded_prefix,
                             'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
@@ -563,7 +571,11 @@ class LogsDataProcessor:
                             'Last-Feature': last_feature
                         }
                     )
+                    
+                    # Group and sort by case_id and earliest timestamp
+                    processed_df = _group_and_sort(processed_df, "case_id", "timestamp")
                     # safe df to csv
+                    processed_df.drop('timestamp', axis=1, inplace=True)
                     processed_df.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                     
                 # Temporal Feature
@@ -595,7 +607,7 @@ class LogsDataProcessor:
                     feature_lst, max_length_prefix, mask = process_timestamp(feature, max_length_prefix, mask)
                     
                     # initialize storage dict
-                    storage_dict = { 'case_id': train_or_test_df['case_id'] }
+                    storage_dict = { 'case_id': train_or_test_df['case_id'], 'timestamp': train_or_test_df['timestamp'] }
                     # update storage dict with time delta data
                     storage_dict.update( build_storage_df(feature, feature_lst) )
                     
@@ -614,7 +626,12 @@ class LogsDataProcessor:
                     
                     # build df for storage
                     processed_df = pd.DataFrame(storage_dict)
+                    
+                    # Group and sort by case_id and earliest timestamp
+                    processed_df = _group_and_sort(processed_df, "case_id", "timestamp")
+                    
                     # safe df to csv
+                    processed_df.drop('timestamp', axis=1, inplace=True)
                     processed_df.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                     
                     
@@ -632,6 +649,14 @@ class LogsDataProcessor:
             coded_json = json.dumps(mask.tolist())
             with open(os.path.join(self._dir_path, "padding_mask.json"), "w") as metadata_file:
                 metadata_file.write(coded_json)
+                
+                
+# Group and sort by case_id and earliest timestamp
+def _group_and_sort(df, caseID_col: str, timestamp_col: str):
+    earliest_timestamps = df.groupby(caseID_col)[timestamp_col].min().reset_index()
+    sorted_case_ids = earliest_timestamps.sort_values(timestamp_col)[caseID_col]
+    sorted_df = df.set_index(caseID_col).loc[sorted_case_ids].reset_index()
+    return sorted_df
                 
                 
 # Custom scaling function to exclude padding tokens (e.g., -1)
