@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from package.constants import Feature_Type, Target, Temporal_Feature
 
 class LogsDataLoader:
-    def __init__(self, name: str, input_columns: List[str],
+    def __init__(self, name: str, sorting: bool, input_columns: List[str],
                  target_columns: Dict[str, Target], temporal_features: Dict[Temporal_Feature, bool],
                  dir_path: str = "./datasets"):
         """Provides support for reading and pre-processing examples from processed logs.
@@ -19,7 +19,13 @@ class LogsDataLoader:
             name (str): Name of the dataset as used during processing raw logs.
             dir_path (str): Path to dataset directory.
         """
-        self._dir_path = f"{dir_path}/{name}/processed"
+        self._sorting = sorting
+        if self._sorting:
+            sort_str = "sorted"
+        else:
+            sort_str = "unsorted"
+        self._dir_path = os.path.join(dir_path, name, "processed", sort_str)
+        # self._dir_path = f"{dir_path}/{name}/processed"
         self.label_encoders = {}
         self.scalers = {}
         self.target_columns: Dict[str, Target] = target_columns

@@ -11,7 +11,7 @@ import tensorflow as tf
 from package.constants import Feature_Type, Target, Temporal_Feature
 
 class LogsDataProcessor:
-    def __init__(self, name: str, filepath: str, columns: List[str],
+    def __init__(self, name: str, filepath: str, sorting: bool, columns: List[str],
                  input_columns: List[str],
                  target_columns: Dict[str, Target],
                  temporal_features: Dict[Temporal_Feature, bool],
@@ -30,6 +30,7 @@ class LogsDataProcessor:
         """
         self._name = name
         self._filepath = filepath
+        self._sorting = sorting
         self._org_columns: List[str] = columns
         self.additional_columns: Optional[Dict[Feature_Type, List[str]]] = additional_columns
         self._input_columns: List[str] = input_columns
@@ -37,9 +38,14 @@ class LogsDataProcessor:
         self._datetime_format: str = datetime_format
         self._temporal_features: Dict[Temporal_Feature, bool] = temporal_features
         self._pool = pool
+        
+        if self._sorting:
+            sort_str = "sorted"
+        else:
+            sort_str = "unsorted"
 
         # Create directory for saving processed datasets
-        self._dir_path = os.path.join('datasets', self._name, "processed")
+        self._dir_path = os.path.join('datasets', self._name, "processed", sort_str)
         os.makedirs(self._dir_path, exist_ok=True)
         
         
@@ -87,7 +93,7 @@ class LogsDataProcessor:
         Returns:
             pd.DataFrame: Loaded dataframe.
         """
-        filepath = os.path.join(os.path.dirname(self._dir_path), self._filepath)
+        filepath = os.path.join(os.path.dirname(os.path.dirname(self._dir_path)), self._filepath)
         additional_cols = [item for sublist in self.additional_columns.values() for item in sublist]
         
         print("Parsing Event-Log...")
@@ -490,10 +496,11 @@ class LogsDataProcessor:
                         df = pd.concat([df, prepared_temp_feature_df], axis=1)
             
             # TODO: Exclude Sorting by earliest time_timestamp (groupby case_concept_name)?
-            # # Get the earliest timestamp for each 'case_concept_name'
-            # df = df.groupby('case_concept_name').apply(lambda x: x.sort_values('time_timestamp')).reset_index(drop=True)
-            # # Sort the entire DataFrame by the earliest timestamp of each group
-            # df = df.sort_values(by='time_timestamp').reset_index(drop=True)
+            # Get the earliest timestamp for each 'case_concept_name'
+            if self._sorting:
+                df = df.groupby('case_concept_name').apply(lambda x: x.sort_values('time_timestamp')).reset_index(drop=True)
+                # Sort the entire DataFrame by the earliest timestamp of each group
+                df = df.sort_values(by='time_timestamp').reset_index(drop=True)
                 
             # metadata = self._extract_logs_metadata(df)
             train_test_split_point = int(abs(df["case_concept_name"].nunique() * train_test_ratio))

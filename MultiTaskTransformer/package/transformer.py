@@ -50,6 +50,7 @@ class ModelWrapper():
                 dataset_name: str,
                 input_columns: List[str],
                 target_columns: dict[str, Target],
+                additional_columns: Dict[Feature_Type, List[str]],
                 word_dicts: dict[str, Dict[str, int]],
                 max_case_length: int,
                 feature_type_dict: Dict[Feature_Type, List[str]],
@@ -66,6 +67,7 @@ class ModelWrapper():
         self.dataset_name = dataset_name
         self.input_columns = input_columns
         self.target_columns = target_columns
+        self.additional_columns = additional_columns
         self.word_dicts = word_dicts
         self.max_case_length = max_case_length
         self.feature_type_dict = feature_type_dict
