@@ -440,7 +440,6 @@ class ModelWrapper():
                     batch_size: int = 12,
                     model_learning_rate: float = 0.001
                     ):
-        
         validation_split = 0.2
         
         self.model = self.get_model(
@@ -479,37 +478,17 @@ class ModelWrapper():
                     return multi_task_loss_layer(y_trues, y_preds)
                 return loss_fn
             
-            # TODO: Custom loss function for reverse-scaled metrics
-            def multi_task_loss_fn(is_regression):
-                multi_task_loss_layer = MultiTaskLossLayer(is_regression)
-                def loss_fn(y_true, y_pred):
-                    # Since y_true and y_pred are passed separately for each output, we wrap them in a list
-                    y_trues = [y_true]
-                    y_preds = [y_pred]
-                    # Call the multi-task loss layer for a single task
-                    return multi_task_loss_layer(y_trues, y_preds)
-                return loss_fn
-            
-            # Define metrics
-            train_metrics = []
-            for reg in is_regression:
-                if reg:
-                    train_metrics.append( tf.keras.metrics.MeanAbsoluteError() )
-                else:
-                    train_metrics.append( tf.keras.metrics.SparseCategoricalAccuracy() )
-            
-            # Define the loss functions for each output
+            # Define the loss functions and train metrics for each output
             losses = {}
-            for output_key, reg in zip(train_token_dict_y.keys(), is_regression):
-                losses.update({output_key: multi_task_loss_fn([reg])})
-                
-            # Define the training metrics for each output
             train_metrics = {}
             for output_key, reg in zip(train_token_dict_y.keys(), is_regression):
+                # loss functions
+                losses.update({output_key: multi_task_loss_fn([reg])})
+                # train metrics
                 if reg:
-                    train_metrics.update({output_key: })
+                    train_metrics.update({output_key: tf.keras.metrics.MeanAbsoluteError()})
                 else:
-                    train_metrics.update({output_key: })
+                    train_metrics.update({output_key: tf.keras.metrics.SparseCategoricalAccuracy()})
 
             # Compile the model with the combined loss
             self.model.compile(
@@ -527,11 +506,12 @@ class ModelWrapper():
                 if target_feature in feature_lst: break
                 
             # if target is categorical
-            if feature_type is Feature_Type.CATEGORICAL:
+            if feature_type is Feature_Type.CATEGORICAL: 
                 # Classification task
                 self.model.compile(
                     optimizer=tf.keras.optimizers.Adam(model_learning_rate),
                     loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+                    # metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
                     metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
                 )
                 
