@@ -149,6 +149,8 @@ class LogsDataProcessor:
     def _prepare_temporal_feature(self, df, day_of_week: bool = True, hour_of_day: bool = True):
         # timestamp at index 1
         timestamp_column = df.columns[1]
+        # safe original timestamp column before overwriting it
+        df["timestamp"] = df[timestamp_column]
         
         # Calculate the time passed since the first timestamp for each case_concept_name
         # added offset of +1 to distinguish from padding tokens
@@ -308,7 +310,7 @@ class LogsDataProcessor:
             case_df = df[df[case_id] == case]
             for i in range(len(case_df)-1):
                 row = [case]
-                row.extend([case_df.iloc[i]["time_timestamp"]])
+                row.extend([case_df.iloc[i]["timestamp"]])
                 for col in additional_columns:
                     original_value = case_df.iloc[i][col]
                     cat = case_df[col].to_list()
@@ -497,9 +499,13 @@ class LogsDataProcessor:
                         # append prepared temp feature data to df
                         df = pd.concat([df, prepared_temp_feature_df], axis=1)
             
+            # TODO: debugging
+            print("df columns")
+            print(df.columns)
+            
             # Sorting by earliest time_timestamp (groupby case_concept_name)
             if self._sorting:
-                df = _group_and_sort(df, "case_concept_name", "time_timestamp")
+                df = _group_and_sort(df, "case_concept_name", "timestamp")
                 train_test_split_point = int(df["case_concept_name"].nunique() * train_test_ratio)
             else:
                 # random train-test split
@@ -507,6 +513,8 @@ class LogsDataProcessor:
                 unique_cases = df["case_concept_name"].unique()
                 np.random.shuffle(unique_cases)
                 train_test_split_point = int(len(unique_cases) * train_test_ratio)
+                
+            print(df)
                 
             # train and test case_id lists
             train_list = df["case_concept_name"].unique()[:train_test_split_point]

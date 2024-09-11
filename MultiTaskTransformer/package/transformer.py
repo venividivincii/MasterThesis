@@ -2,8 +2,9 @@ import os
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 import numpy as np
+import pandas as pd
 from numpy.typing import NDArray
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from package.constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
 from typing import List, Dict
 
@@ -48,6 +49,7 @@ class MultiTaskLossLayer(layers.Layer):
 class ModelWrapper():
     def __init__(self,
                 dataset_name: str,
+                case_ids: pd.DataFrame,
                 input_columns: List[str],
                 target_columns: dict[str, Target],
                 additional_columns: Dict[Feature_Type, List[str]],
@@ -56,6 +58,7 @@ class ModelWrapper():
                 feature_type_dict: Dict[Feature_Type, List[str]],
                 temporal_features: Dict[Temporal_Feature, bool],
                 model_architecture: type[Model_Architecture],
+                sorting: bool,
                 masking: bool = True
                 ):
         
@@ -65,6 +68,7 @@ class ModelWrapper():
         self.ff_dim: int = 64
         
         self.dataset_name = dataset_name
+        self.case_ids = case_ids
         self.input_columns = input_columns
         self.target_columns = target_columns
         self.additional_columns = additional_columns
@@ -73,6 +77,7 @@ class ModelWrapper():
         self.feature_type_dict = feature_type_dict
         self.temporal_features = temporal_features
         self.model_architecture = model_architecture
+        self.sorting = sorting
         self.masking = masking
         
         self.model: Model = None
@@ -430,6 +435,7 @@ class ModelWrapper():
     def train_model(self,
                     train_token_dict_x: dict[str, NDArray[np.float32]],
                     train_token_dict_y: dict[str, NDArray[np.float32]],
+                    y_scaler,
                     model_epochs: int,
                     batch_size: int = 12,
                     model_learning_rate: float = 0.001
@@ -473,16 +479,43 @@ class ModelWrapper():
                     return multi_task_loss_layer(y_trues, y_preds)
                 return loss_fn
             
+            # TODO: Custom loss function for reverse-scaled metrics
+            def multi_task_loss_fn(is_regression):
+                multi_task_loss_layer = MultiTaskLossLayer(is_regression)
+                def loss_fn(y_true, y_pred):
+                    # Since y_true and y_pred are passed separately for each output, we wrap them in a list
+                    y_trues = [y_true]
+                    y_preds = [y_pred]
+                    # Call the multi-task loss layer for a single task
+                    return multi_task_loss_layer(y_trues, y_preds)
+                return loss_fn
+            
+            # Define metrics
+            train_metrics = []
+            for reg in is_regression:
+                if reg:
+                    train_metrics.append( tf.keras.metrics.MeanAbsoluteError() )
+                else:
+                    train_metrics.append( tf.keras.metrics.SparseCategoricalAccuracy() )
+            
             # Define the loss functions for each output
             losses = {}
             for output_key, reg in zip(train_token_dict_y.keys(), is_regression):
                 losses.update({output_key: multi_task_loss_fn([reg])})
+                
+            # Define the training metrics for each output
+            train_metrics = {}
+            for output_key, reg in zip(train_token_dict_y.keys(), is_regression):
+                if reg:
+                    train_metrics.update({output_key: })
+                else:
+                    train_metrics.update({output_key: })
 
             # Compile the model with the combined loss
             self.model.compile(
                                 optimizer=tf.keras.optimizers.Adam(model_learning_rate),
-                                loss=losses#,
-                                #metrics=[combined_loss]
+                                loss=losses,
+                                metrics=train_metrics
                                 )
             
         else:
@@ -510,12 +543,14 @@ class ModelWrapper():
                     loss=tf.keras.losses.LogCosh(),
                     metrics=[tf.keras.metrics.MeanAbsoluteError()]
                 )
-
-        # Train-validation split
-        first_key = next(iter(train_token_dict_x.keys()))
-        n_samples = train_token_dict_x[first_key].shape[0]
-        indices = np.arange(n_samples)
-        train_indices, val_indices = train_test_split(indices, test_size=validation_split, random_state=42)
+        
+        
+        if self.sorting:
+            train_indices, val_indices = sequential_train_val_split(train_token_dict_x, train_token_dict_y, self.case_ids, validation_split)
+            
+        else:
+            train_indices, val_indices = random_train_val_split(train_token_dict_x, train_token_dict_y, self.case_ids, validation_split)
+            
 
         # Split the data
         train_token_dict_x_split = {key: x_data[train_indices] for key, x_data in train_token_dict_x.items()}
@@ -553,4 +588,38 @@ class ModelWrapper():
         
         return self.model, self.history
         
-        
+
+def random_train_val_split(train_token_dict_x, train_token_dict_y, case_ids, validation_split):
+    # Get the number of samples (assumed to be the same for all features)
+    n_samples = case_ids.shape[0]
+
+    # Initialize GroupShuffleSplit with desired validation split
+    gss = GroupShuffleSplit(n_splits=1, test_size=validation_split, random_state=42)
+
+    # Perform the split using case_ids as the grouping factor
+    train_idx, val_idx = next(gss.split(np.arange(n_samples), groups=case_ids))
+
+    return train_idx, val_idx
+
+
+def sequential_train_val_split(train_token_dict_x, train_token_dict_y, case_ids, validation_split):
+    # Get the number of samples (assumed to be the same for all features)
+    n_samples = case_ids.shape[0]
+    
+    # Create a DataFrame to track indices and case_ids
+    data_with_case_ids = pd.DataFrame({'index': np.arange(n_samples), 'case_id': case_ids})
+
+    # Group by case_id and get unique case_ids in the order they appear
+    unique_case_ids = data_with_case_ids['case_id'].unique()
+
+    # Determine the number of validation cases
+    n_val_cases = int(len(unique_case_ids) * validation_split)
+
+    # Select the last n_val_cases for validation
+    val_case_ids = unique_case_ids[-n_val_cases:]
+
+    # Get train and validation indices based on case_id
+    train_idx = data_with_case_ids[~data_with_case_ids['case_id'].isin(val_case_ids)]['index'].values
+    val_idx = data_with_case_ids[data_with_case_ids['case_id'].isin(val_case_ids)]['index'].values
+
+    return train_idx, val_idx
