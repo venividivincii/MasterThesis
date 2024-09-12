@@ -4,7 +4,7 @@ from tensorflow.keras import layers, Model
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
-from sklearn.model_selection import train_test_split, GroupShuffleSplit
+from sklearn.model_selection import train_test_split, GroupShuffleSplit, GroupKFold
 from package.constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
 from typing import List, Dict
 
@@ -80,7 +80,7 @@ class ModelWrapper():
         self.sorting = sorting
         self.masking = masking
         
-        self.model: Model = None
+        self.models: List[Model] = None
         self.history = None
         
         
@@ -435,29 +435,97 @@ class ModelWrapper():
     def train_model(self,
                     train_token_dict_x: dict[str, NDArray[np.float32]],
                     train_token_dict_y: dict[str, NDArray[np.float32]],
+                    cross_val: bool,
                     y_scaler,
                     model_epochs: int,
                     batch_size: int = 12,
-                    model_learning_rate: float = 0.001
+                    model_learning_rate: float = 0.001,
+                    n_splits: int = 5  # For k-fold cross-validation
                     ):
         validation_split = 0.2
+        self.models = []
         
-        self.model = self.get_model(
-                                input_columns=self.input_columns,
-                                target_columns=self.target_columns,
-                                word_dicts=self.word_dicts,
-                                max_case_length=self.max_case_length,
-                                feature_type_dict=self.feature_type_dict,
-                                temporal_features=self.temporal_features,
-                                model_architecture=self.model_architecture
-                                )
+        if cross_val:
+            print(f"Using {n_splits}-Fold Cross-Validation with Grouping by case_id")
+            group_kfold = GroupKFold(n_splits=n_splits)
+            val_histories, fold_histories = [], []
+            fold = 1
+            
+            for train_indices, val_indices in group_kfold.split(self.case_ids, groups=self.case_ids):
+                print(f"Training fold {fold}/{n_splits}...")
+                
+                # Build and compile model for the fold
+                model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
+
+                # Split data
+                train_token_dict_x_split, val_token_dict_x_split = self._split_data(train_token_dict_x, train_indices, val_indices)
+                train_token_dict_y_split, val_token_dict_y_split = self._split_data(train_token_dict_y, train_indices, val_indices)
+
+                # Train the model for the current fold
+                model, history = self._train_single_fold(
+                    model,
+                    train_token_dict_x_split,
+                    train_token_dict_y_split,
+                    val_token_dict_x_split,
+                    val_token_dict_y_split,
+                    model_epochs,
+                    batch_size,
+                    fold
+                )
+                self.models.append(model)
+
+                val_histories.append(history.history['val_loss'])
+                fold_histories.append(history)  # Save the entire history object for each fold
+                fold += 1
+            
+            # Calculate average validation performance across all folds
+            avg_val_loss = np.mean([min(history) for history in val_histories])
+            print(f"Average validation loss across {n_splits} folds: {avg_val_loss}")
+            
+            return self.models, fold_histories  # Optionally return full val_histories if needed
+
+        else:
+            print("Using regular train-validation split")
+            train_indices, val_indices = self._split_train_val(validation_split)
+            
+            # Build and compile model
+            model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
+            
+            # Split data
+            train_token_dict_x_split, val_token_dict_x_split = self._split_data(train_token_dict_x, train_indices, val_indices)
+            train_token_dict_y_split, val_token_dict_y_split = self._split_data(train_token_dict_y, train_indices, val_indices)
+
+            # Train the model without cross-validation
+            model, history = self._train_single_fold(
+                model,
+                train_token_dict_x_split,
+                train_token_dict_y_split,
+                val_token_dict_x_split,
+                val_token_dict_y_split,
+                model_epochs,
+                batch_size
+            )
+            self.models = [model]
+
+            return self.models, [history]
+
+
+    def _build_and_compile_model(self, train_token_dict_y, model_learning_rate: float):
+        """
+        Build and compile the model, checking whether it is a multi-task or single-task setup.
+        """
+        model = self.get_model(
+            input_columns=self.input_columns,
+            target_columns=self.target_columns,
+            word_dicts=self.word_dicts,
+            max_case_length=self.max_case_length,
+            feature_type_dict=self.feature_type_dict,
+            temporal_features=self.temporal_features,
+            model_architecture=self.model_architecture
+        )
         
-        
-        # Check the number of target columns to determine if it's a multi-task or single-task problem
         if len(self.target_columns) > 1:
             print("Using Multi-Task Learning Setup")
-            # Multi-task scenario: use MultiTaskLoss
-            
             # Define if output is regression task tasks
             is_regression = []
             for feature in self.target_columns.keys():
@@ -465,16 +533,12 @@ class ModelWrapper():
                     is_regression.append(False)  # False for classification tasks
                 elif feature in self.feature_type_dict[Feature_Type.TIMESTAMP]:
                     is_regression.append(True)  # True for regression tasks
-
-
-            # Custom loss function that integrates MultiTaskLossLayer
+            
             def multi_task_loss_fn(is_regression):
                 multi_task_loss_layer = MultiTaskLossLayer(is_regression)
                 def loss_fn(y_true, y_pred):
-                    # Since y_true and y_pred are passed separately for each output, we wrap them in a list
                     y_trues = [y_true]
                     y_preds = [y_pred]
-                    # Call the multi-task loss layer for a single task
                     return multi_task_loss_layer(y_trues, y_preds)
                 return loss_fn
             
@@ -489,87 +553,82 @@ class ModelWrapper():
                     train_metrics.update({output_key: tf.keras.metrics.MeanAbsoluteError()})
                 else:
                     train_metrics.update({output_key: tf.keras.metrics.SparseCategoricalAccuracy()})
-
-            # Compile the model with the combined loss
-            self.model.compile(
-                                optimizer=tf.keras.optimizers.Adam(model_learning_rate),
-                                loss=losses,
-                                metrics=train_metrics
-                                )
             
+            model.compile(optimizer=tf.keras.optimizers.Adam(model_learning_rate), loss=losses, metrics=train_metrics)
         else:
             print("Using Single-Task Learning Setup")
-            # Single-task scenario: use standard loss
             target_feature = list(self.target_columns.keys())[0]
-            # get feature_type
-            for feature_type, feature_lst in self.additional_columns.items():
-                if target_feature in feature_lst: break
-                
-            # if target is categorical
-            if feature_type is Feature_Type.CATEGORICAL: 
-                # Classification task
-                self.model.compile(
-                    optimizer=tf.keras.optimizers.Adam(model_learning_rate),
-                    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
-                    # metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
-                    metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
-                )
-                
-            # if target is temporal
-            elif feature_type is Feature_Type.TIMESTAMP:
-                # Regression task
-                self.model.compile(
-                    optimizer=tf.keras.optimizers.Adam(model_learning_rate),
-                    loss=tf.keras.losses.LogCosh(),
-                    metrics=[tf.keras.metrics.MeanAbsoluteError()]
-                )
-        
-        
+            feature_type = next(ftype for ftype, flist in self.additional_columns.items() if target_feature in flist)
+            
+            if feature_type == Feature_Type.CATEGORICAL:
+                model.compile(optimizer=tf.keras.optimizers.Adam(model_learning_rate),
+                                loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+                                metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
+            elif feature_type == Feature_Type.TIMESTAMP:
+                model.compile(optimizer=tf.keras.optimizers.Adam(model_learning_rate),
+                                loss=tf.keras.losses.LogCosh(),
+                                metrics=[tf.keras.metrics.MeanAbsoluteError()])
+        return model
+
+    def _split_train_val(self, validation_split: float):
+        """
+        Split the case_ids into train and validation indices based on validation_split.
+        """
         if self.sorting:
-            train_indices, val_indices = sequential_train_val_split(train_token_dict_x, train_token_dict_y, self.case_ids, validation_split)
-            
+            train_indices, val_indices = sequential_train_val_split(self.case_ids, validation_split)
         else:
-            train_indices, val_indices = random_train_val_split(train_token_dict_x, train_token_dict_y, self.case_ids, validation_split)
-            
+            train_indices, val_indices = random_train_val_split(self.case_ids, validation_split)
+        return train_indices, val_indices
 
-        # Split the data
-        train_token_dict_x_split = {key: x_data[train_indices] for key, x_data in train_token_dict_x.items()}
-        val_token_dict_x_split = {key: x_data[val_indices] for key, x_data in train_token_dict_x.items()}
-        train_token_dict_y_split = {key: y_data[train_indices] for key, y_data in train_token_dict_y.items()}
-        val_token_dict_y_split = {key: y_data[val_indices] for key, y_data in train_token_dict_y.items()}
+    def _split_data(self, data_dict: dict[str, NDArray[np.float32]], train_indices: NDArray[np.int32], val_indices: NDArray[np.int32]):
+        """
+        Split the data dictionary into training and validation sets based on provided indices.
+        """
+        train_data_split = {key: data[train_indices] for key, data in data_dict.items()}
+        val_data_split = {key: data[val_indices] for key, data in data_dict.items()}
+        return train_data_split, val_data_split
 
-        # Define callbacks
-        early_stopping = tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=3,
-            restore_best_weights=True,
-            min_delta=0.001
-        )
-
-        model_specs_dir = os.path.join("datasets", self.dataset_name, "model_specs")
+    def _train_single_fold(self,
+                        model,
+                        train_token_dict_x_split: dict[str, NDArray[np.float32]],
+                        train_token_dict_y_split: dict[str, NDArray[np.float32]],
+                        val_token_dict_x_split: dict[str, NDArray[np.float32]],
+                        val_token_dict_y_split: dict[str, NDArray[np.float32]],
+                        model_epochs: int,
+                        batch_size: int,
+                        fold: int = None):
+        """
+        Train the model for a single fold or without cross-validation.
+        """
+        callbacks = [tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True, min_delta=0.001)]
+        
+        if fold is not None:
+            model_specs_dir = os.path.join("datasets", self.dataset_name, "model_specs", f"fold_{fold}")
+        else:
+            model_specs_dir = os.path.join("datasets", self.dataset_name, "model_specs")
+        
         os.makedirs(model_specs_dir, exist_ok=True)
-
+        
         model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(model_specs_dir, "best_model.h5"),
             save_weights_only=True,
             monitor="val_loss",
             mode="min", save_best_only=True)
-
-        # Train the model
-        print("----------------------------------------------------")
-        print("Training...")
-        self.history = self.model.fit(
+        
+        callbacks.append(model_checkpoint_callback)
+        
+        return model, model.fit(
             x=train_token_dict_x_split,
             y=train_token_dict_y_split,
             validation_data=(val_token_dict_x_split, val_token_dict_y_split),
-            epochs=model_epochs, batch_size=batch_size, shuffle=True,
-            callbacks=[early_stopping, model_checkpoint_callback]
+            epochs=model_epochs,
+            batch_size=batch_size,
+            shuffle=True,
+            callbacks=callbacks
         )
         
-        return self.model, self.history
-        
 
-def random_train_val_split(train_token_dict_x, train_token_dict_y, case_ids, validation_split):
+def random_train_val_split(case_ids, validation_split):
     # Get the number of samples (assumed to be the same for all features)
     n_samples = case_ids.shape[0]
 
@@ -582,7 +641,7 @@ def random_train_val_split(train_token_dict_x, train_token_dict_y, case_ids, val
     return train_idx, val_idx
 
 
-def sequential_train_val_split(train_token_dict_x, train_token_dict_y, case_ids, validation_split):
+def sequential_train_val_split(case_ids, validation_split):
     # Get the number of samples (assumed to be the same for all features)
     n_samples = case_ids.shape[0]
     
@@ -603,3 +662,16 @@ def sequential_train_val_split(train_token_dict_x, train_token_dict_y, case_ids,
     val_idx = data_with_case_ids[data_with_case_ids['case_id'].isin(val_case_ids)]['index'].values
 
     return train_idx, val_idx
+
+
+def k_fold_split(case_ids, n_splits):
+    # Get the number of samples (assumed to be the same for all features)
+    n_samples = case_ids.shape[0]
+
+    # Initialize GroupKFold with the desired number of splits
+    gkf = GroupKFold(n_splits=n_splits)
+
+    # Perform the splits using case_ids as the grouping factor
+    splits = gkf.split(np.arange(n_samples), groups=case_ids)
+
+    return list(splits)  # returns a list of (train_idx, val_idx) tuples for each fold
