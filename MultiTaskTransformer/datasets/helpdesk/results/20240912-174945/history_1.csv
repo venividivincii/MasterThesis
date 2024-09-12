@@ -1,0 +1,2 @@
+loss,sparse_categorical_accuracy,val_loss,val_sparse_categorical_accuracy
+0.7665002346038818,0.7566657066345215,0.7030824422836304,0.775711178779602

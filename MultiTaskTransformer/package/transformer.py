@@ -186,23 +186,6 @@ class ModelWrapper():
             if self.model_wrapper.masking:
                 mask = self.mask
             return mask
-        
-        
-    # class MaskedGlobalAveragePooling1D(layers.Layer):
-    #     def call(self, inputs, mask=None):
-    #         assert len(inputs.shape) == 3, f"Expected inputs to have 3 dimensions, got {inputs.shape}"
-
-    #         if mask is not None:
-    #             mask = tf.cast(mask, dtype=tf.float32)
-    #             # mask = tf.expand_dims(mask, axis=-1)
-    #             inputs *= mask
-
-    #             summed = tf.reduce_sum(inputs, axis=1)
-    #             mask_sum = tf.reduce_sum(mask, axis=1)
-    #             mask_sum = tf.maximum(mask_sum, tf.ones_like(mask_sum))
-    #             return summed / mask_sum
-    #         else:
-    #             return tf.reduce_mean(inputs, axis=1)
 
 
     class MaskedGlobalAveragePooling1D(tf.keras.layers.Layer):
