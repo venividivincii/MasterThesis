@@ -423,7 +423,10 @@ class ModelWrapper():
                     model_epochs: int,
                     batch_size: int = 12,
                     model_learning_rate: float = 0.001,
-                    n_splits: int = 5  # For k-fold cross-validation
+                    n_splits: int = 5,
+                    warmup_epochs: int = 0,
+                    initial_lr: float = 1e-5,
+                    target_lr: float = 1e-3
                     ):
         validation_split = 0.2
         self.models = []
@@ -453,7 +456,10 @@ class ModelWrapper():
                     val_token_dict_y_split,
                     model_epochs,
                     batch_size,
-                    fold
+                    fold,
+                    warmup_epochs,
+                    initial_lr,
+                    target_lr
                 )
                 self.models.append(model)
 
@@ -486,7 +492,10 @@ class ModelWrapper():
                 val_token_dict_x_split,
                 val_token_dict_y_split,
                 model_epochs,
-                batch_size
+                batch_size,
+                warmup_epochs,
+                initial_lr,
+                target_lr
             )
             self.models = [model]
 
@@ -571,6 +580,8 @@ class ModelWrapper():
         val_data_split = {key: data[val_indices] for key, data in data_dict.items()}
         return train_data_split, val_data_split
 
+
+
     def _train_single_fold(self,
                         model,
                         train_token_dict_x_split: dict[str, NDArray[np.float32]],
@@ -579,12 +590,50 @@ class ModelWrapper():
                         val_token_dict_y_split: dict[str, NDArray[np.float32]],
                         model_epochs: int,
                         batch_size: int,
-                        fold: int = None):
+                        fold: int = None,
+                        warmup_epochs: int = 5,  # Specify the number of warmup epochs
+                        initial_lr: float = 1e-5,
+                        target_lr: float = 1e-3):
         """
-        Train the model for a single fold or without cross-validation.
+        Train the model for a single fold or without cross-validation, with a warmup phase.
         """
-        callbacks = [tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True, min_delta=0.001)]
+        def warmup_scheduler(epoch, lr, warmup_epochs=5, initial_lr=1e-5, target_lr=1e-3):
+            """
+            Warmup scheduler that gradually increases the learning rate from initial_lr to target_lr 
+            over warmup_epochs and then keeps the target_lr for the remaining epochs.
+            """
+            if epoch < warmup_epochs:
+                return initial_lr + (target_lr - initial_lr) * (epoch / warmup_epochs)
+            else:
+                return target_lr
         
+        class EarlyStoppingAfterWarmup(tf.keras.callbacks.Callback):
+            def __init__(self, warmup_epochs, early_stopping_callback):
+                super().__init__()
+                self.warmup_epochs = warmup_epochs
+                self.early_stopping_callback = early_stopping_callback
+                self.original_patience = early_stopping_callback.patience
+                self.current_patience = early_stopping_callback.patience
+
+            def on_epoch_end(self, epoch, logs=None):
+                if epoch < self.warmup_epochs:
+                    # During warmup, disable early stopping by setting high patience
+                    self.early_stopping_callback.patience = self.warmup_epochs + self.original_patience
+                else:
+                    # Restore original patience after warmup
+                    self.early_stopping_callback.patience = self.original_patience
+        
+        # Early stopping callback
+        early_stopping_callback = tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss', patience=3, restore_best_weights=True, min_delta=0.001
+        )
+        
+        # Custom callback to activate early stopping only after the warmup phase
+        early_stopping_after_warmup_callback = EarlyStoppingAfterWarmup(
+            warmup_epochs=warmup_epochs, early_stopping_callback=early_stopping_callback
+        )
+
+        # Model checkpoint callback
         if fold is not None:
             model_specs_dir = os.path.join("datasets", self.dataset_name, "model_specs", f"fold_{fold}")
         else:
@@ -596,10 +645,18 @@ class ModelWrapper():
             filepath=os.path.join(model_specs_dir, "best_model.h5"),
             save_weights_only=True,
             monitor="val_loss",
-            mode="min", save_best_only=True)
+            mode="min", save_best_only=True
+        )
         
-        callbacks.append(model_checkpoint_callback)
+        # Learning rate warmup callback
+        lr_scheduler_callback = tf.keras.callbacks.LearningRateScheduler(
+            lambda epoch, lr: warmup_scheduler(epoch, lr, warmup_epochs=warmup_epochs, initial_lr=initial_lr, target_lr=target_lr)
+        )
         
+        # Add all callbacks to the list
+        callbacks = [early_stopping_after_warmup_callback, early_stopping_callback, model_checkpoint_callback, lr_scheduler_callback]
+        
+        # Train the model
         return model, model.fit(
             x=train_token_dict_x_split,
             y=train_token_dict_y_split,
