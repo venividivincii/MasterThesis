@@ -8,7 +8,8 @@ from sklearn.model_selection import train_test_split, GroupShuffleSplit, GroupKF
 from package.constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
 from typing import List, Dict
 
-
+# MirroredStrategy for multi-GPU parallelism
+strategy = tf.distribute.MirroredStrategy()
 
 class MultiTaskLossLayer(layers.Layer):
     def __init__(self, is_regression, **kwargs):
@@ -431,23 +432,63 @@ class ModelWrapper():
         validation_split = 0.2
         self.models = []
         
-        if cross_val:
-            print(f"Using {n_splits}-Fold Cross-Validation with Grouping by case_id")
-            group_kfold = GroupKFold(n_splits=n_splits)
-            val_histories, fold_histories = [], []
-            fold = 1
-            
-            for train_indices, val_indices in group_kfold.split(self.case_ids, groups=self.case_ids):
-                print(f"Training fold {fold}/{n_splits}...")
+        
+        # Using MirroredStrategy for distributed training on GPUs
+        with strategy.scope():
+            if cross_val:
+                print(f"Using {n_splits}-Fold Cross-Validation with Grouping by case_id")
+                group_kfold = GroupKFold(n_splits=n_splits)
+                val_histories, fold_histories = [], []
+                fold = 1
                 
-                # Build and compile model for the fold
-                model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
+                for train_indices, val_indices in group_kfold.split(self.case_ids, groups=self.case_ids):
+                    print(f"Training fold {fold}/{n_splits}...")
+                    
+                    # Build and compile model for the fold
+                    model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
 
+                    # Split data
+                    train_token_dict_x_split, val_token_dict_x_split = self._split_data(train_token_dict_x, train_indices, val_indices)
+                    train_token_dict_y_split, val_token_dict_y_split = self._split_data(train_token_dict_y, train_indices, val_indices)
+
+                    # Train the model for the current fold
+                    model, history = self._train_single_fold(
+                        model,
+                        train_token_dict_x_split,
+                        train_token_dict_y_split,
+                        val_token_dict_x_split,
+                        val_token_dict_y_split,
+                        model_epochs,
+                        batch_size,
+                        fold,
+                        warmup_epochs,
+                        initial_lr,
+                        target_lr
+                    )
+                    self.models.append(model)
+
+                    val_histories.append(history.history['val_loss'])
+                    fold_histories.append(history)  # Save the entire history object for each fold
+                    fold += 1
+                
+                # Calculate average validation performance across all folds
+                avg_val_loss = np.mean([min(history) for history in val_histories])
+                print(f"Average validation loss across {n_splits} folds: {avg_val_loss}")
+                
+                return self.models, fold_histories  # Optionally return full val_histories if needed
+
+            else:
+                print("Using regular train-validation split")
+                train_indices, val_indices = self._split_train_val(validation_split)
+                
+                # Build and compile model
+                model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
+                
                 # Split data
                 train_token_dict_x_split, val_token_dict_x_split = self._split_data(train_token_dict_x, train_indices, val_indices)
                 train_token_dict_y_split, val_token_dict_y_split = self._split_data(train_token_dict_y, train_indices, val_indices)
 
-                # Train the model for the current fold
+                # Train the model without cross-validation
                 model, history = self._train_single_fold(
                     model,
                     train_token_dict_x_split,
@@ -456,50 +497,13 @@ class ModelWrapper():
                     val_token_dict_y_split,
                     model_epochs,
                     batch_size,
-                    fold,
                     warmup_epochs,
                     initial_lr,
                     target_lr
                 )
-                self.models.append(model)
+                self.models = [model]
 
-                val_histories.append(history.history['val_loss'])
-                fold_histories.append(history)  # Save the entire history object for each fold
-                fold += 1
-            
-            # Calculate average validation performance across all folds
-            avg_val_loss = np.mean([min(history) for history in val_histories])
-            print(f"Average validation loss across {n_splits} folds: {avg_val_loss}")
-            
-            return self.models, fold_histories  # Optionally return full val_histories if needed
-
-        else:
-            print("Using regular train-validation split")
-            train_indices, val_indices = self._split_train_val(validation_split)
-            
-            # Build and compile model
-            model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
-            
-            # Split data
-            train_token_dict_x_split, val_token_dict_x_split = self._split_data(train_token_dict_x, train_indices, val_indices)
-            train_token_dict_y_split, val_token_dict_y_split = self._split_data(train_token_dict_y, train_indices, val_indices)
-
-            # Train the model without cross-validation
-            model, history = self._train_single_fold(
-                model,
-                train_token_dict_x_split,
-                train_token_dict_y_split,
-                val_token_dict_x_split,
-                val_token_dict_y_split,
-                model_epochs,
-                batch_size,
-                warmup_epochs,
-                initial_lr,
-                target_lr
-            )
-            self.models = [model]
-
-            return self.models, [history]
+                return self.models, [history]
 
 
     def _build_and_compile_model(self, train_token_dict_y, model_learning_rate: float):
