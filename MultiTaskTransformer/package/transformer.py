@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 from sklearn.model_selection import train_test_split, GroupShuffleSplit, GroupKFold
 from package.constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
 from typing import List, Dict
+import concurrent.futures
 
 # MirroredStrategy for multi-GPU parallelism
 strategy = tf.distribute.MirroredStrategy()
@@ -629,7 +630,7 @@ class ModelWrapper():
         
         # Early stopping callback
         early_stopping_callback = tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss', patience=3, restore_best_weights=True, min_delta=0.001
+            monitor='val_loss', patience=5, restore_best_weights=True, min_delta=0.001
         )
         
         # Custom callback to activate early stopping only after the warmup phase
