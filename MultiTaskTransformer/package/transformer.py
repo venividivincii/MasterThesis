@@ -11,6 +11,10 @@ from package.constants import Feature_Type, Target, Temporal_Feature, Model_Arch
 from typing import List, Dict
 import concurrent.futures
 
+# Set global random seeds for reproducibility
+tf.random.set_seed(42)
+np.random.seed(42)
+
 # MirroredStrategy for multi-GPU parallelism
 strategy = tf.distribute.MirroredStrategy()
 
@@ -606,24 +610,20 @@ class ModelWrapper():
 
 
     def _train_single_fold(self,
-                           model,
-                           train_dataset,
-                           val_dataset,
-                           model_epochs: int,
-                           batch_size: int,
-                           fold: int = None,
-                           warmup_epochs: int = 5,  # Specify the number of warmup epochs
-                           initial_lr: float = 1e-5,
-                           target_lr: float = 1e-3):
+                        model,
+                        train_dataset,
+                        val_dataset,
+                        model_epochs: int,
+                        batch_size: int,
+                        fold: int = None,
+                        warmup_epochs: int = 5,  # Specify the number of warmup epochs
+                        initial_lr: float = 1e-5,
+                        target_lr: float = 1e-3):
         """
         Train the model for a single fold or without cross-validation, with a warmup phase.
         """
         
         def warmup_scheduler(epoch, lr, warmup_epochs=5, initial_lr=1e-5, target_lr=1e-3):
-            """
-            Warmup scheduler that gradually increases the learning rate from initial_lr to target_lr 
-            over warmup_epochs and then keeps the target_lr for the remaining epochs.
-            """
             if epoch < warmup_epochs:
                 return initial_lr + (target_lr - initial_lr) * (epoch / warmup_epochs)
             else:
@@ -635,126 +635,95 @@ class ModelWrapper():
                 self.warmup_epochs = warmup_epochs
                 self.early_stopping_callback = early_stopping_callback
                 self.original_patience = early_stopping_callback.patience
-                self.current_patience = early_stopping_callback.patience
-    
+        
             def on_epoch_end(self, epoch, logs=None):
                 if epoch < self.warmup_epochs + self.original_patience:
-                    # During warmup, disable early stopping by setting high patience
                     self.early_stopping_callback.patience = self.warmup_epochs + self.original_patience
                 else:
-                    # Restore original patience after warmup
                     self.early_stopping_callback.patience = self.original_patience
         
         
         class EpochSavepoint(tf.keras.callbacks.Callback):
             def __init__(self):
                 super().__init__()
-                # History
                 self.history_path = os.path.join(train_savepoints_dir, "history.pkl")
                 if os.path.isfile(self.history_path):
-                    with open(self.history_path, "r") as json_file:
-                        self.epoch_history = json.load(json_file)
+                    with open(self.history_path, 'rb') as file:
+                        self.epoch_history = pickle.load(file)
                 else:
-                    self.epoch_history = []  # This will store the history for all epochs
+                    self.epoch_history = []
                     
-                # Current Epoch
-                self.epoch_path = os.path.join(train_savepoints_dir, "current_epochs.pkl")
+                self.epoch_path = model_epochs_path
                 if os.path.isfile(self.epoch_path):
-                    with open(self.epoch_path, 'rb') as file:  # Open in binary read mode
+                    with open(self.epoch_path, 'rb') as file:
                         self.current_epochs = pickle.load(file)
                 else:
                     self.current_epochs = 0
 
             def on_epoch_end(self, epoch, logs=None):
-                # Append the logs (metrics for the current epoch) to the full history
+                self.current_epochs += 1
+                with open(model_epochs_path, 'wb') as file:
+                    pickle.dump(self.current_epochs, file)
                 self.epoch_history.append(logs.copy())
-                # Save the accumulated history to a JSON file at the end of each epoch
-                with open(self.history_path, 'wb') as file:  # Open in binary read mode
+                with open(self.history_path, 'wb') as file:
                     pickle.dump(self.epoch_history, file)
-        
+                # Save the optimizer's state
+                optimizer_state = model.optimizer.get_weights()
+                with open(optimizer_path, 'wb') as f:
+                    pickle.dump(optimizer_state, f)
         
         class BestModelCheckpoint(tf.keras.callbacks.ModelCheckpoint):
-            def __init__(self, existing_best_model_path, validation_data, save_weights_only=False, *args, **kwargs):
-                """
-                Args:
-                    existing_best_model_path (str): Path to an existing best model (.h5 file or weights file).
-                    validation_data (tuple): Validation data for evaluating the model to get the initial monitored value.
-                    save_weights_only (bool): Whether to save only model weights (True) or the full model (False).
-                """
-                super(BestModelCheckpoint, self).__init__(save_weights_only=save_weights_only, *args, **kwargs)
-                
+            def __init__(self, existing_best_model_path, validation_data, *args, **kwargs):
+                super(BestModelCheckpoint, self).__init__(*args, **kwargs)
                 self.existing_best_model_path = existing_best_model_path
                 self.validation_data = validation_data
-                self.save_weights_only = save_weights_only
+                self.weights_loaded = False
 
-                if os.path.isfile(self.existing_best_model_path):
-                    # Load the best model from the provided path
+            def on_train_begin(self, logs=None):
+                if os.path.isfile(self.existing_best_model_path) and not self.weights_loaded:
                     self._load_existing_best_model()
+                    self.weights_loaded = True
+                super(BestModelCheckpoint, self).on_train_begin(logs)
 
             def _load_existing_best_model(self):
-                if self.save_weights_only:
-                    # Load model weights instead of the full model
-                    print(f"Loading model weights from: {self.existing_best_model_path}")
-                    self.model.load_weights(self.existing_best_model_path)
-                else:
-                    # Load the full model
-                    self.best_model = tf.keras.models.load_model(self.existing_best_model_path)
-                    print(f"Loaded existing best model from: {self.existing_best_model_path}")
+                print(f"Loading model weights from: {self.existing_best_model_path}")
+                model.load_weights(self.existing_best_model_path)
                 
-                # Evaluate the model on the validation set to get the monitored metric (e.g., val_loss)
-                if self.validation_data:
-                    x_val, y_val = self.validation_data
-                    results = self.model.evaluate(x_val, y_val, verbose=0)
-                    
-                    # Get the monitored metric (assuming it's validation loss or validation accuracy)
-                    if self.monitor == 'val_loss':
-                        self.best = results[0]  # Assuming loss is the first metric
-                    elif self.monitor == 'val_accuracy':
-                        self.best = results[1]  # Assuming accuracy is the second metric
-                    
-                    print(f"Initialized best {self.monitor} from the existing model: {self.best}")
+                if isinstance(self.validation_data, tf.data.Dataset):
+                    for val_batch in self.validation_data.take(1):
+                        inputs, labels = val_batch
+                        results = model.evaluate(inputs, labels, verbose=0)
                 else:
-                    print("Validation data not provided, unable to evaluate existing best model.")
-                    # Set a default "best" value if validation data is not available
-                    self.best = np.inf if 'loss' in self.monitor else -np.inf
-
-            def on_epoch_end(self, epoch, logs=None):
-                # Call the original on_epoch_end method to maintain ModelCheckpoint functionality
-                super(BestModelCheckpoint, self).on_epoch_end(epoch, logs)
-                    
+                    x_val, y_val = self.validation_data
+                    results = model.evaluate(x_val, y_val, verbose=0)
+                
+                if self.monitor == 'val_loss':
+                    self.best = results[0]
+                elif self.monitor == 'val_accuracy':
+                    self.best = results[1]
+                print(f"Initialized best {self.monitor} from the existing model: {self.best}")
         
-        # Training Savepoint dir
         train_savepoints_dir = os.path.join("datasets", self.dataset_name, "train_savepoints")
         os.makedirs(train_savepoints_dir, exist_ok=True)
-        # History saver callback
+        model_epochs_path = os.path.join(train_savepoints_dir, "current_epoch.pkl")
+        optimizer_path = os.path.join(train_savepoints_dir, "optimizer_save.pkl")
         epoch_savepoint_callback = EpochSavepoint()
         
+        if os.path.isfile(model_epochs_path):
+            with open(model_epochs_path, 'rb') as file:
+                current_epochs = pickle.load(file)
+            warmup_epochs -= current_epochs if warmup_epochs > current_epochs else 0
+            model_epochs -= current_epochs
+            print(f"model_epochs: {model_epochs}")
+            print(f"warmup_epochs: {warmup_epochs}")
         
-        
-        # Early stopping callback
         early_stopping_callback = tf.keras.callbacks.EarlyStopping(
             monitor='val_loss', patience=20, restore_best_weights=True, min_delta=0.001
         )
         
-        # Custom callback to activate early stopping only after the warmup phase
         early_stopping_after_warmup_callback = EarlyStoppingAfterWarmup(
             warmup_epochs=warmup_epochs, early_stopping_callback=early_stopping_callback
         )
-    
-        # # Model checkpoint callback
-        # if fold is not None:
-        #     model_specs_dir = os.path.join("datasets", self.dataset_name, "model_specs", f"fold_{fold}")
-        # else:
-        #     model_specs_dir = os.path.join("datasets", self.dataset_name, "model_specs")
-        
-        # os.makedirs(model_specs_dir, exist_ok=True)
-        
-        # best_model_callback = tf.keras.callbacks.ModelCheckpoint(
-        #     filepath=os.path.join(train_savepoints_dir, "best_model.h5"),
-        #     save_weights_only=True,
-        #     monitor="val_loss",
-        #     mode="min", save_best_only=True
-        # )
         
         best_model_path = os.path.join(train_savepoints_dir, "best_model.h5")
         best_model_callback = BestModelCheckpoint(
@@ -767,33 +736,44 @@ class ModelWrapper():
             mode='min'
         )
         
-        # Create a callback to save the model after each epoch
         model_savepoint_callback = tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(train_savepoints_dir, "model_save.h5"),
-            save_weights_only=True,
+            save_weights_only=True,  # Save the full model including optimizer
             save_best_only=False,
             verbose=1
         )
 
-        
-        # Learning rate warmup callback
         lr_scheduler_callback = tf.keras.callbacks.LearningRateScheduler(
             lambda epoch, lr: warmup_scheduler(epoch, lr, warmup_epochs=warmup_epochs, initial_lr=initial_lr, target_lr=target_lr)
         )
         
-        # Add all callbacks to the list
         callbacks = [early_stopping_after_warmup_callback, early_stopping_callback, best_model_callback, lr_scheduler_callback,
-                     model_savepoint_callback, epoch_savepoint_callback]
+                    model_savepoint_callback, epoch_savepoint_callback]
         
-        # Train the model
+        
+        if os.path.isfile(optimizer_path):
+            # fit one step to initialize optimizer etc
+            model.fit(
+                train_dataset,
+                validation_data=val_dataset,
+                epochs=1,
+                batch_size=batch_size,
+                shuffle=True
+                )
+            
+            with open(optimizer_path, 'rb') as f:
+                optimizer_state = pickle.load(f)
+            model.optimizer.set_weights(optimizer_state)
+        
         return model, model.fit(
-            train_dataset,  # No need to pass x and y separately
-            validation_data=val_dataset,  # Both inputs and labels are contained in the datasets
+            train_dataset,
+            validation_data=val_dataset,
             epochs=model_epochs,
             batch_size=batch_size,
-            shuffle=True,  # Can remove this if already done during dataset preparation
+            shuffle=True,
             callbacks=callbacks
         )
+
 
 
         
