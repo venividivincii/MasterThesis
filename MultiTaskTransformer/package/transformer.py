@@ -462,43 +462,78 @@ class ModelWrapper():
     
             
             if cross_val:
+                # initialize crossval_savepoints dir
+                crossval_savepoints_dir = os.path.join("datasets", self.dataset_name, "crossval_savepoints")
+                os.makedirs(crossval_savepoints_dir, exist_ok=True)
+                
+                # paths for val_histories and fold_histories
+                val_histories_path = os.path.join(crossval_savepoints_dir, "val_histories.pkl")
+                fold_histories_path = os.path.join(crossval_savepoints_dir, "crossval_savepoints.pkl")
+                
                 print(f"Using {n_splits}-Fold Cross-Validation with Grouping by case_id")
                 group_kfold = GroupKFold(n_splits=n_splits)
-                val_histories, fold_histories = [], []
-                fold = 1
-    
-                for train_indices, val_indices in group_kfold.split(self.case_ids, groups=self.case_ids):
-                    print(f"Training fold {fold}/{n_splits}...")
+                
+                # load histories from other folds, if exist
+                if os.path.isfile(val_histories_path) and os.path.isfile(fold_histories_path):
+                    with open(val_histories_path, 'rb') as file:
+                        val_histories = pickle.load(file)
+                    with open(fold_histories_path, 'rb') as file:
+                        fold_histories = pickle.load(file)
+                else:
+                    val_histories, fold_histories = [], []
                     
-                    # Build and compile model for the fold
-                    model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
-    
-                    # Prepare tf.data.Dataset for training and validation splits
-                    train_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, train_indices)
-                    val_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, val_indices)
-    
-                    # Train the model for the current fold
-                    model, history = self._train_single_fold(
-                        model,
-                        train_dataset,
-                        val_dataset,
-                        model_epochs,
-                        batch_size,
-                        fold,
-                        warmup_epochs,
-                        initial_lr,
-                        target_lr
-                    )
-                    self.models.append(model)
-    
-                    val_histories.append(history.history['val_loss'])
-                    fold_histories.append(history)  # Save the entire history object for each fold
-                    fold += 1
-    
+                fold = len(val_histories) + 1
+
+                for idx, (train_indices, val_indices) in enumerate( group_kfold.split(self.case_ids, groups=self.case_ids) ):
+                    
+                    # skip already processed folds, if training was interrupted
+                    if (idx+1) == fold:
+                        print(f"Training fold {fold}/{n_splits}...")
+                        # Build and compile model for the fold
+                        model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
+
+                        # Prepare tf.data.Dataset for training and validation splits
+                        train_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, train_indices)
+                        val_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, val_indices)
+
+                        # Train the model for the current fold
+                        model, history = self._train_single_fold(
+                            model,
+                            train_dataset,
+                            val_dataset,
+                            model_epochs,
+                            batch_size,
+                            fold,
+                            warmup_epochs,
+                            initial_lr,
+                            target_lr
+                        )
+                        self.models.append(model)
+
+                        # Extract validation loss from the custom history structure
+                        val_loss_history = [epoch['val_loss'] for epoch in history if 'val_loss' in epoch]
+                        val_histories.append(val_loss_history)
+                        fold_histories.append(history)  # Save the entire history (custom structure) for each fold
+                        
+                        # persist val_histories
+                        with open(val_histories_path, 'wb') as file:
+                            pickle.dump(val_histories, file)
+                        # persist fold_histories
+                        with open(fold_histories_path, 'wb') as file:
+                            pickle.dump(fold_histories, file)
+                        fold += 1
+                    else:
+                        print(f"Skipping fold {idx+1}: Already processed.")
+
                 # Calculate average validation performance across all folds
                 avg_val_loss = np.mean([min(history) for history in val_histories])
                 print(f"Average validation loss across {n_splits} folds: {avg_val_loss}")
                 
+                # delete all crossval_savepoints
+                for filename in os.listdir(crossval_savepoints_dir):
+                    file_path = os.path.join(crossval_savepoints_dir, filename)
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.remove(file_path)
                 return self.models, fold_histories  # Optionally return full val_histories if needed
     
             else:
@@ -685,7 +720,7 @@ class ModelWrapper():
                 super(BestModelCheckpoint, self).on_train_begin(logs)
 
             def _load_existing_best_model(self):
-                print(f"Loading model weights from: {self.existing_best_model_path}")
+                print(f"Loading existing model weights from: {self.existing_best_model_path}")
                 model.load_weights(self.existing_best_model_path)
                 
                 if isinstance(self.validation_data, tf.data.Dataset):
@@ -714,8 +749,6 @@ class ModelWrapper():
                 current_epochs = pickle.load(file)
             warmup_epochs -= current_epochs if warmup_epochs > current_epochs else 0
             model_epochs -= current_epochs
-            print(f"model_epochs: {model_epochs}")
-            print(f"warmup_epochs: {warmup_epochs}")
         
         early_stopping_callback = tf.keras.callbacks.EarlyStopping(
             monitor='val_loss', patience=20, restore_best_weights=True, min_delta=0.001
@@ -738,9 +771,9 @@ class ModelWrapper():
         
         model_savepoint_callback = tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(train_savepoints_dir, "model_save.h5"),
-            save_weights_only=True,  # Save the full model including optimizer
+            save_weights_only=True,
             save_best_only=False,
-            verbose=1
+            verbose=0
         )
 
         lr_scheduler_callback = tf.keras.callbacks.LearningRateScheduler(
@@ -752,6 +785,7 @@ class ModelWrapper():
         
         
         if os.path.isfile(optimizer_path):
+            print("Previous training was interrupted. Initializing optimizer by training for 1 epoch...")
             # fit one step to initialize optimizer etc
             model.fit(
                 train_dataset,
@@ -783,7 +817,7 @@ class ModelWrapper():
         for filename in os.listdir(train_savepoints_dir):
             file_path = os.path.join(train_savepoints_dir, filename)
             if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.remove(file_path)  # Remove the file
+                os.remove(file_path)
         
         return model, history
 

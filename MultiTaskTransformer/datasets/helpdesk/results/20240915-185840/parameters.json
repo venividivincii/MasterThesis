@@ -1,0 +1,1 @@
+{"Input Columns": ["concept_name"], "Target Columns": {"concept_name": "next_feature"}, "Model Epochs": 2, "Transformer Layers": 1, "Sorting": false, "Cross Validation": true, "Elapsed Time": 0.5013387203216553}
