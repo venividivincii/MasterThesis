@@ -646,9 +646,8 @@ class ModelWrapper():
         class EpochSavepoint(tf.keras.callbacks.Callback):
             def __init__(self):
                 super().__init__()
-                self.history_path = os.path.join(train_savepoints_dir, "history.pkl")
-                if os.path.isfile(self.history_path):
-                    with open(self.history_path, 'rb') as file:
+                if os.path.isfile(history_path):
+                    with open(history_path, 'rb') as file:
                         self.epoch_history = pickle.load(file)
                 else:
                     self.epoch_history = []
@@ -665,7 +664,7 @@ class ModelWrapper():
                 with open(model_epochs_path, 'wb') as file:
                     pickle.dump(self.current_epochs, file)
                 self.epoch_history.append(logs.copy())
-                with open(self.history_path, 'wb') as file:
+                with open(history_path, 'wb') as file:
                     pickle.dump(self.epoch_history, file)
                 # Save the optimizer's state
                 optimizer_state = model.optimizer.get_weights()
@@ -706,6 +705,7 @@ class ModelWrapper():
         train_savepoints_dir = os.path.join("datasets", self.dataset_name, "train_savepoints")
         os.makedirs(train_savepoints_dir, exist_ok=True)
         model_epochs_path = os.path.join(train_savepoints_dir, "current_epoch.pkl")
+        history_path = os.path.join(train_savepoints_dir, "history.pkl")
         optimizer_path = os.path.join(train_savepoints_dir, "optimizer_save.pkl")
         epoch_savepoint_callback = EpochSavepoint()
         
@@ -764,8 +764,9 @@ class ModelWrapper():
             with open(optimizer_path, 'rb') as f:
                 optimizer_state = pickle.load(f)
             model.optimizer.set_weights(optimizer_state)
-        
-        return model, model.fit(
+            
+        # fit the model
+        model.fit(
             train_dataset,
             validation_data=val_dataset,
             epochs=model_epochs,
@@ -773,6 +774,18 @@ class ModelWrapper():
             shuffle=True,
             callbacks=callbacks
         )
+        
+        # use full history, in case of interruptions
+        with open(history_path, 'rb') as file:
+            history = pickle.load(file)
+            
+        # delete all train_savepoints
+        for filename in os.listdir(train_savepoints_dir):
+            file_path = os.path.join(train_savepoints_dir, filename)
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.remove(file_path)  # Remove the file
+        
+        return model, history
 
 
 
