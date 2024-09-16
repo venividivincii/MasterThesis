@@ -9,6 +9,10 @@ from typing import Dict, Tuple, Optional, List
 from numpy.typing import NDArray
 from package.constants import Feature_Type, Target, Temporal_Feature
 
+# Set global random seeds for reproducibility
+tf.random.set_seed(42)
+np.random.seed(42)
+
 class LogsDataLoader:
     def __init__(self, name: str, sorting: bool, input_columns: List[str],
                  target_columns: Dict[str, Target], temporal_features: Dict[Temporal_Feature, bool],

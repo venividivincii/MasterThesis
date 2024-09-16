@@ -1,4 +1,5 @@
 import os
+import shutil
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 import numpy as np
@@ -10,6 +11,7 @@ from sklearn.model_selection import train_test_split, GroupShuffleSplit, GroupKF
 from package.constants import Feature_Type, Target, Temporal_Feature, Model_Architecture
 from typing import List, Dict
 import concurrent.futures
+from tensorflow.keras.optimizers import Adam
 
 # Set global random seeds for reproducibility
 tf.random.set_seed(42)
@@ -56,6 +58,7 @@ class MultiTaskLossLayer(layers.Layer):
 
 class ModelWrapper():
     def __init__(self,
+                job_id: str,
                 dataset_name: str,
                 case_ids: pd.DataFrame,
                 input_columns: List[str],
@@ -74,7 +77,8 @@ class ModelWrapper():
         self.embed_dim: int = 36
         self.num_heads: int = 4
         self.ff_dim: int = 64
-        
+
+        self.job_id = job_id
         self.dataset_name = dataset_name
         self.case_ids = case_ids
         self.input_columns = input_columns
@@ -457,13 +461,13 @@ class ModelWrapper():
                     dataset = dataset.cache()
             
                 # Shuffle and batch the dataset
-                dataset = dataset.shuffle(buffer_size=1024).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+                dataset = dataset.shuffle(buffer_size=1024, seed=42).batch(batch_size).prefetch(tf.data.AUTOTUNE)
                 return dataset
     
             
             if cross_val:
                 # initialize crossval_savepoints dir
-                crossval_savepoints_dir = os.path.join("datasets", self.dataset_name, "crossval_savepoints")
+                crossval_savepoints_dir = os.path.join("datasets", self.dataset_name, "crossval_savepoints", self.job_id)
                 os.makedirs(crossval_savepoints_dir, exist_ok=True)
                 
                 # paths for val_histories and fold_histories
@@ -530,10 +534,12 @@ class ModelWrapper():
                 print(f"Average validation loss across {n_splits} folds: {avg_val_loss}")
                 
                 # delete all crossval_savepoints
-                for filename in os.listdir(crossval_savepoints_dir):
-                    file_path = os.path.join(crossval_savepoints_dir, filename)
-                    if os.path.isfile(file_path) or os.path.islink(file_path):
-                        os.remove(file_path)
+                # for filename in os.listdir(crossval_savepoints_dir):
+                #     file_path = os.path.join(crossval_savepoints_dir, filename)
+                #     if os.path.isfile(file_path) or os.path.islink(file_path):
+                #         os.remove(file_path)
+                # os.rmdir(crossval_savepoints_dir)
+                shutil.rmtree(crossval_savepoints_dir)
                 return self.models, fold_histories  # Optionally return full val_histories if needed
     
             else:
@@ -702,9 +708,12 @@ class ModelWrapper():
                 with open(history_path, 'wb') as file:
                     pickle.dump(self.epoch_history, file)
                 # Save the optimizer's state
-                optimizer_state = model.optimizer.get_weights()
+                # optimizer_config = model.optimizer.get_config()
+                optimizer_weights = [tf.keras.backend.get_value(var) for var in model.optimizer.variables()]
                 with open(optimizer_path, 'wb') as f:
-                    pickle.dump(optimizer_state, f)
+                    pickle.dump(optimizer_weights, f)
+                    
+                    
         
         class BestModelCheckpoint(tf.keras.callbacks.ModelCheckpoint):
             def __init__(self, existing_best_model_path, validation_data, *args, **kwargs):
@@ -717,6 +726,8 @@ class ModelWrapper():
                 if os.path.isfile(self.existing_best_model_path) and not self.weights_loaded:
                     self._load_existing_best_model()
                     self.weights_loaded = True
+                    model_save_path = os.path.join(train_savepoints_dir, "model_save.h5")
+                    model.load_weights(model_save_path)
                 super(BestModelCheckpoint, self).on_train_begin(logs)
 
             def _load_existing_best_model(self):
@@ -724,9 +735,10 @@ class ModelWrapper():
                 model.load_weights(self.existing_best_model_path)
                 
                 if isinstance(self.validation_data, tf.data.Dataset):
-                    for val_batch in self.validation_data.take(1):
-                        inputs, labels = val_batch
-                        results = model.evaluate(inputs, labels, verbose=0)
+                    # for val_batch in self.validation_data.take(1):
+                    #     inputs, labels = val_batch
+                    #     results = model.evaluate(inputs, labels, verbose=0)
+                    results = model.evaluate(self.validation_data, verbose=0)
                 else:
                     x_val, y_val = self.validation_data
                     results = model.evaluate(x_val, y_val, verbose=0)
@@ -737,7 +749,7 @@ class ModelWrapper():
                     self.best = results[1]
                 print(f"Initialized best {self.monitor} from the existing model: {self.best}")
         
-        train_savepoints_dir = os.path.join("datasets", self.dataset_name, "train_savepoints")
+        train_savepoints_dir = os.path.join("datasets", self.dataset_name, "train_savepoints", self.job_id)
         os.makedirs(train_savepoints_dir, exist_ok=True)
         model_epochs_path = os.path.join(train_savepoints_dir, "current_epoch.pkl")
         history_path = os.path.join(train_savepoints_dir, "history.pkl")
@@ -786,7 +798,8 @@ class ModelWrapper():
         
         if os.path.isfile(optimizer_path):
             print("Previous training was interrupted. Initializing optimizer by training for 1 epoch...")
-            # fit one step to initialize optimizer etc
+            # Do one dummy step to initialize the optimizer
+            # model.train_on_batch(next(iter(train_dataset)))
             model.fit(
                 train_dataset,
                 validation_data=val_dataset,
@@ -796,9 +809,16 @@ class ModelWrapper():
                 )
             
             with open(optimizer_path, 'rb') as f:
-                optimizer_state = pickle.load(f)
-            model.optimizer.set_weights(optimizer_state)
-            
+                optimizer_weights = pickle.load(f)
+            # Recreate the optimizer from the config
+            # model.optimizer = Adam.from_config(optimizer_config)
+            # Set the optimizer weights to the model's optimizer
+            # model.optimizer.set_weights(optimizer_weights)
+            # Set the weights back into the optimizer
+            # Restore the weights to the optimizer's variables
+            for var, weight in zip(model.optimizer.variables(), optimizer_weights):
+                tf.keras.backend.set_value(var, weight)
+
         # fit the model
         model.fit(
             train_dataset,
@@ -814,10 +834,12 @@ class ModelWrapper():
             history = pickle.load(file)
             
         # delete all train_savepoints
-        for filename in os.listdir(train_savepoints_dir):
-            file_path = os.path.join(train_savepoints_dir, filename)
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.remove(file_path)
+        # for filename in os.listdir(train_savepoints_dir):
+        #     file_path = os.path.join(train_savepoints_dir, filename)
+        #     if os.path.isfile(file_path) or os.path.islink(file_path):
+        #         os.remove(file_path)
+        # os.rmdir(train_savepoints_dir)
+        shutil.rmtree(train_savepoints_dir)
         
         return model, history
 
