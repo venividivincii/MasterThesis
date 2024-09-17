@@ -439,32 +439,12 @@ class ModelWrapper():
                     warmup_epochs: int = 0,
                     initial_lr: float = 1e-5,
                     target_lr: float = 1e-3):
+        
+        validation_split = 0.2
+        self.models = []
 
         # Using MirroredStrategy for distributed training on GPUs
         with strategy.scope():
-            # tf.compat.v1.disable_eager_execution()
-            validation_split = 0.2
-            self.models = []
-            
-            # Ensure no Python generators are used, and the dataset is fully optimized
-            def prepare_tf_dataset(x_dict, y_dict, indices=None, use_cache=True):
-                # If indices are provided, select only those rows
-                if indices is not None:
-                    x_dict = {key: x[indices] for key, x in x_dict.items()}
-                    y_dict = {key: y[indices] for key, y in y_dict.items()}
-                
-                # Convert the dictionary to a TensorFlow dataset
-                dataset = tf.data.Dataset.from_tensor_slices((x_dict, y_dict))
-            
-                # Optionally cache the dataset to avoid redundant loading
-                if use_cache:
-                    dataset = dataset.cache()
-            
-                # Shuffle and batch the dataset
-                dataset = dataset.shuffle(buffer_size=1024, seed=42).batch(batch_size).prefetch(tf.data.AUTOTUNE)
-                return dataset
-    
-            
             if cross_val:
                 # initialize crossval_savepoints dir
                 crossval_savepoints_dir = os.path.join("datasets", self.dataset_name, "crossval_savepoints", self.job_id)
@@ -495,16 +475,18 @@ class ModelWrapper():
                         print(f"Training fold {fold}/{n_splits}...")
                         # Build and compile model for the fold
                         model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
-
-                        # Prepare tf.data.Dataset for training and validation splits
-                        train_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, train_indices)
-                        val_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, val_indices)
+                        
+                        # Split data
+                        train_token_dict_x_split, val_token_dict_x_split = self._split_data(train_token_dict_x, train_indices, val_indices)
+                        train_token_dict_y_split, val_token_dict_y_split = self._split_data(train_token_dict_y, train_indices, val_indices)
 
                         # Train the model for the current fold
                         model, history = self._train_single_fold(
                             model,
-                            train_dataset,
-                            val_dataset,
+                            train_token_dict_x_split,
+                            train_token_dict_y_split,
+                            val_token_dict_x_split,
+                            val_token_dict_y_split,
                             model_epochs,
                             batch_size,
                             fold,
@@ -549,15 +531,17 @@ class ModelWrapper():
                 # Build and compile model
                 model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
                 
-                # Prepare tf.data.Dataset for training and validation splits
-                train_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, train_indices)
-                val_dataset = prepare_tf_dataset(train_token_dict_x, train_token_dict_y, val_indices)
+                # Split data
+                train_token_dict_x_split, val_token_dict_x_split = self._split_data(train_token_dict_x, train_indices, val_indices)
+                train_token_dict_y_split, val_token_dict_y_split = self._split_data(train_token_dict_y, train_indices, val_indices)
     
                 # Train the model without cross-validation
                 model, history = self._train_single_fold(
                     model,
-                    train_dataset,
-                    val_dataset,
+                    train_token_dict_x_split,
+                    train_token_dict_y_split,
+                    val_token_dict_x_split,
+                    val_token_dict_y_split,
                     model_epochs,
                     batch_size,
                     None,
@@ -649,11 +633,14 @@ class ModelWrapper():
         return train_data_split, val_data_split
 
 
-
+# train_dataset,
+# val_dataset,
     def _train_single_fold(self,
                         model,
-                        train_dataset,
-                        val_dataset,
+                        train_token_dict_x_split: dict[str, NDArray[np.float32]],
+                        train_token_dict_y_split: dict[str, NDArray[np.float32]],
+                        val_token_dict_x_split: dict[str, NDArray[np.float32]],
+                        val_token_dict_y_split: dict[str, NDArray[np.float32]],
                         model_epochs: int,
                         batch_size: int,
                         fold: int = None,
@@ -716,10 +703,11 @@ class ModelWrapper():
                     
         
         class BestModelCheckpoint(tf.keras.callbacks.ModelCheckpoint):
-            def __init__(self, existing_best_model_path, validation_data, *args, **kwargs):
+            def __init__(self, existing_best_model_path, val_token_dict_x_split, val_token_dict_y_split, *args, **kwargs):
                 super(BestModelCheckpoint, self).__init__(*args, **kwargs)
                 self.existing_best_model_path = existing_best_model_path
-                self.validation_data = validation_data
+                self.val_token_dict_x_split = val_token_dict_x_split
+                self.val_token_dict_y_split = val_token_dict_y_split
                 self.weights_loaded = False
 
             def on_train_begin(self, logs=None):
@@ -734,14 +722,7 @@ class ModelWrapper():
                 print(f"Loading existing model weights from: {self.existing_best_model_path}")
                 model.load_weights(self.existing_best_model_path)
                 
-                if isinstance(self.validation_data, tf.data.Dataset):
-                    # for val_batch in self.validation_data.take(1):
-                    #     inputs, labels = val_batch
-                    #     results = model.evaluate(inputs, labels, verbose=0)
-                    results = model.evaluate(self.validation_data, verbose=0)
-                else:
-                    x_val, y_val = self.validation_data
-                    results = model.evaluate(x_val, y_val, verbose=0)
+                results = model.evaluate(self.val_token_dict_x_split, self.val_token_dict_y_split, verbose=0)
                 
                 if self.monitor == 'val_loss':
                     self.best = results[0]
@@ -773,7 +754,8 @@ class ModelWrapper():
         best_model_path = os.path.join(train_savepoints_dir, "best_model.h5")
         best_model_callback = BestModelCheckpoint(
             existing_best_model_path=best_model_path,
-            validation_data=val_dataset,
+            val_token_dict_x_split=val_token_dict_x_split,
+            val_token_dict_y_split=val_token_dict_y_split,
             filepath=best_model_path,
             save_weights_only=True,
             monitor='val_loss',
@@ -801,8 +783,9 @@ class ModelWrapper():
             # Do one dummy step to initialize the optimizer
             # model.train_on_batch(next(iter(train_dataset)))
             model.fit(
-                train_dataset,
-                validation_data=val_dataset,
+                x=train_token_dict_x_split,
+                y=train_token_dict_y_split,
+                validation_data=(val_token_dict_x_split, val_token_dict_y_split),
                 epochs=1,
                 batch_size=batch_size,
                 shuffle=True
@@ -821,8 +804,9 @@ class ModelWrapper():
 
         # fit the model
         model.fit(
-            train_dataset,
-            validation_data=val_dataset,
+            x=train_token_dict_x_split,
+            y=train_token_dict_y_split,
+            validation_data=(val_token_dict_x_split, val_token_dict_y_split),
             epochs=model_epochs,
             batch_size=batch_size,
             shuffle=True,
