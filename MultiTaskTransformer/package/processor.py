@@ -149,8 +149,6 @@ class LogsDataProcessor:
     def _prepare_temporal_feature(self, temp_feature_df, day_of_week: bool = True, hour_of_day: bool = True):
         # timestamp at index 1
         timestamp_column = temp_feature_df.columns[1]
-        # safe original timestamp column before overwriting it
-        temp_feature_df["timestamp"] = temp_feature_df[timestamp_column]
         
         # Calculate the time passed since the first timestamp for each case_concept_name
         # added offset of +1 to distinguish from padding tokens
@@ -164,10 +162,22 @@ class LogsDataProcessor:
         #     lambda x: ((x - x.min()).dt.total_seconds() / 86400.0 ).astype(float).astype(str)
         # )
         
-        # Add time_diff_to_current (difference from every event in the trace prefix to the current event)
-        temp_feature_df[f"{timestamp_column}##time_diff_to_current"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
-            lambda x: (x.iloc[-1] - x).dt.days.astype(str)
+        #
+        
+        # time_remaining (remaining time)
+        temp_feature_df[f"{timestamp_column}##time_remaining"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
+            lambda x: (x.max() - x).dt.days.astype(str)
         )
+        
+        # time_next (difference in days to the next event)
+        temp_feature_df[f"{timestamp_column}##time_next"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
+            lambda x: x.shift(-1) - x
+        ).dt.days.fillna(0).astype(str)
+        
+        # # Add time_diff_to_current (difference from every event in the trace prefix to the current event)
+        # temp_feature_df[f"{timestamp_column}##time_diff_to_current"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
+        #     lambda x: (x.iloc[-1] - x).dt.days.astype(str)
+        # )
         
         # time_passed (time passed since the first event of the trace)
         temp_feature_df[f"{timestamp_column}##time_passed"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
@@ -182,8 +192,8 @@ class LogsDataProcessor:
             temp_feature_df[f"{timestamp_column}##hour_of_day"] = temp_feature_df[timestamp_column].dt.hour.astype(str)
         
         # replace timestamp column with time_passed column
-        temp_feature_df[timestamp_column] = temp_feature_df[f"{timestamp_column}##time_diff_to_current"]
-        temp_feature_df.drop(f"{timestamp_column}##time_diff_to_current", axis=1, inplace=True)
+        # temp_feature_df[timestamp_column] = temp_feature_df[f"{timestamp_column}##time_diff_to_current"]
+        # temp_feature_df.drop(f"{timestamp_column}##time_diff_to_current", axis=1, inplace=True)
         # drop case_id column
         temp_feature_df.drop('case_concept_name', axis=1, inplace=True)
         
@@ -309,26 +319,47 @@ class LogsDataProcessor:
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id", "event_timestamp"]
         for col in additional_columns:
-            processed_columns.extend([col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
+            processed_columns.extend([col, f"{col}_prefix", f"{col}_time-passed-prefix", f"{col}_time-diff-to-current-event-prefix",
+                                      f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
         
         
         processed_data = []
         unique_cases = df[case_id_col].unique()
         
         for case in unique_cases:
-            case_df = df[df[case_id_col] == case]
-            for i in range(len(case_df)-1):
+            trace_df = df[df[case_id_col] == case]
+            for i in range(len(trace_df)-1):
                 row = [case]
-                row.extend([case_df.iloc[i]["time_timestamp"]])
+                row.extend([trace_df.iloc[i]["time_timestamp"]])
                 for col in additional_columns:
-                    original_value = case_df.iloc[i][col]
-                    feature_trace = case_df[col].to_list()
-                    prefix_list = feature_trace[:i + 1]
-                    prefix = " ".join(prefix_list)
-                    # prefix = " ".join([str(item) for item in prefix_list])
-                    next_feature = feature_trace[i + 1]
-                    last_feature = feature_trace[-1]
-                    row.extend([original_value, prefix, i+1, next_feature, last_feature])
+                    # if temporal feature col
+                    if col in self.additional_columns[Feature_Type.TIMESTAMP]:
+                        time_next_trace = trace_df[f"{col}##time_next"].to_list()
+                        time_remaining_trace = trace_df[f"{col}##time_remaining"].to_list()
+                        
+                        # calc time_passed_prefix
+                        time_passed_trace = trace_df[f"{col}##time_passed"].to_list()
+                        time_passed_prefix_list = time_passed_trace[:i + 1]
+                        time_passed_prefix = " ".join(time_passed_prefix_list)
+                        
+                        # Calculate the prefix sum of time differences up to position i (including i)
+                        time_diff_to_current_event__prefix_list = time_next_trace[:i][::-1]
+                        time_diff_to_current_event__prefix = " ".join(time_diff_to_current_event__prefix_list)
+                        
+                        # target columns
+                        next_time = time_next_trace[i]
+                        remaining_time = time_remaining_trace[i]
+                        
+                        row.extend([None, None, time_passed_prefix, time_diff_to_current_event__prefix, i+1, next_time, remaining_time])
+                    else:
+                        current_feature_value = trace_df.iloc[i][col]
+                        feature_trace = trace_df[col].to_list()
+                        prefix_list = feature_trace[:i + 1]
+                        prefix = " ".join(prefix_list)
+                        # prefix = " ".join([str(item) for item in prefix_list])
+                        next_feature = feature_trace[i + 1]
+                        last_feature = feature_trace[-1]
+                        row.extend([current_feature_value, prefix, None, None, i+1, next_feature, last_feature])
                 processed_data.append(row)
             
         
