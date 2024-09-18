@@ -164,9 +164,14 @@ class LogsDataProcessor:
         #     lambda x: ((x - x.min()).dt.total_seconds() / 86400.0 ).astype(float).astype(str)
         # )
         
-        # whole days
+        # time_passed (time passed since the first event of the trace)
         df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
             lambda x: (x - x.min()).dt.days.astype(str)
+        )
+        
+        # Add time_diff_to_current (difference from every event in the trace prefix to the current event)
+        df[f"{timestamp_column}##time_diff_to_current"] = df.groupby('case_concept_name')[timestamp_column].transform(
+            lambda x: (x.iloc[-1] - x).dt.days.astype(str)
         )
         
         # Add day_of_week
@@ -292,6 +297,10 @@ class LogsDataProcessor:
         if Feature_Type.TIMESTAMP in self.additional_columns:
             time_features = self.additional_columns[Feature_Type.TIMESTAMP]
             for feature in time_features:
+                # append time_diff_to_current to additional_columns
+                time_diff_to_current = f"{feature}##time_diff_to_current"
+                additional_columns.append(time_diff_to_current)
+                
                 day_of_week = f"{feature}##day_of_week"
                 hour_of_day = f"{feature}##hour_of_day"
                 if day_of_week in df.columns: additional_columns.append(day_of_week)
@@ -618,6 +627,11 @@ class LogsDataProcessor:
                     storage_dict = { 'case_id': train_or_test_df['case_id'], 'timestamp': train_or_test_df['timestamp'] }
                     # update storage dict with time delta data
                     storage_dict.update( build_storage_df(feature, feature_lst) )
+                    
+                    # process time_diff_to_current
+                    time_diff_to_current_lst, max_length_prefix, mask = process_timestamp(f"{feature}##time_diff_to_current", max_length_prefix, mask)
+                    # update storage dict with additional day_of_week data
+                    storage_dict.update( build_storage_df("time_diff_to_current", time_diff_to_current_lst) )
                     
                     # process additional temporal day_of_week feature
                     if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
