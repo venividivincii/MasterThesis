@@ -343,14 +343,14 @@ class LogsDataProcessor:
                         time_passed_prefix = " ".join(time_passed_prefix_list)
                         
                         # Calculate the prefix sum of time differences up to position i (including i)
-                        time_diff_to_current_event__prefix_list = time_next_trace[:i][::-1]
+                        time_diff_to_current_event__prefix_list = ["0"] + time_next_trace[:i][::-1]
                         time_diff_to_current_event__prefix = " ".join(time_diff_to_current_event__prefix_list)
                         
                         # target columns
                         next_time = time_next_trace[i]
                         remaining_time = time_remaining_trace[i]
                         
-                        row.extend([None, None, time_passed_prefix, time_diff_to_current_event__prefix, i+1, next_time, remaining_time])
+                        row.extend(["", "", time_passed_prefix, time_diff_to_current_event__prefix, i+1, next_time, remaining_time])
                     else:
                         current_feature_value = trace_df.iloc[i][col]
                         feature_trace = trace_df[col].to_list()
@@ -359,7 +359,7 @@ class LogsDataProcessor:
                         # prefix = " ".join([str(item) for item in prefix_list])
                         next_feature = feature_trace[i + 1]
                         last_feature = feature_trace[-1]
-                        row.extend([current_feature_value, prefix, None, None, i+1, next_feature, last_feature])
+                        row.extend([current_feature_value, prefix, "", "", i+1, next_feature, last_feature])
                 processed_data.append(row)
             
         
@@ -635,24 +635,27 @@ class LogsDataProcessor:
                     def process_timestamp(col_str: str, max_length_prefix, mask=None):
                         # access feature data
                         processed_col_lst = []
-                        processed_col_lst.append( train_or_test_df[f"{col_str}"]  )
                         processed_col_lst.append( train_or_test_df[f"{col_str}_next-feature"] )
                         processed_col_lst.append( train_or_test_df[f"{col_str}_last-feature"] )
                         # convert series with prefix strings to List[List]
-                        prefix = train_or_test_df[f"{col_str}_prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
+                        # prefix = train_or_test_df[f"{col_str}_prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
+                        time_passed_prefix = train_or_test_df[f"{col_str}_time-passed-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
+                        time_diff_to_current_event_prefix = train_or_test_df[f"{col_str}_time-diff-to-current-event-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         
                         # TODO: Pad feature prefix
-                        padded_prefix, max_length_prefix, mask = self._pad_feature(prefix, max_length_prefix, mask)
-                        processed_col_lst.append( padded_prefix )
+                        padded_time_passed_prefix, max_length_prefix, mask = self._pad_feature(time_passed_prefix, max_length_prefix, mask)
+                        padded_time_diff_to_current_event_prefix, max_length_prefix, mask = self._pad_feature(time_diff_to_current_event_prefix,
+                                                                                                              max_length_prefix, mask)
+                        processed_col_lst.extend( [padded_time_passed_prefix, padded_time_diff_to_current_event_prefix] )
                         return processed_col_lst, max_length_prefix, mask
                     
                     def build_storage_df(col_str, col_lst):
                         return {
-                            col_str: col_lst[0],
-                            f"{col_str}##Prefix": col_lst[3],
+                            f"{col_str}##Time-Passed Prefix": col_lst[2],
+                            f"{col_str}##Time-Diff-to-current-event Prefix": col_lst[3],
                             f"{col_str}##Prefix Length": train_or_test_df[f"{feature}_prefix-length"],
-                            f"{col_str}##Next-Feature": col_lst[1],
-                            f"{col_str}##Last-Feature": col_lst[2]
+                            f"{col_str}##Next-Time": col_lst[0],
+                            f"{col_str}##Remaining-Time": col_lst[1]
                         }
                     
                     # process temporal feature
@@ -662,11 +665,6 @@ class LogsDataProcessor:
                     storage_dict = { 'case_id': train_or_test_df['case_id'], 'event_timestamp': train_or_test_df['event_timestamp'] }
                     # update storage dict with time delta data
                     storage_dict.update( build_storage_df(feature, feature_lst) )
-                    
-                    # process time_passed
-                    time_passed_lst, max_length_prefix, mask = process_timestamp(f"{feature}##time_passed", max_length_prefix, mask)
-                    # update storage dict with additional day_of_week data
-                    storage_dict.update( build_storage_df("time_passed", time_passed_lst) )
                     
                     # process additional temporal day_of_week feature
                     if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
