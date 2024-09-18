@@ -307,7 +307,7 @@ class LogsDataProcessor:
                 if hour_of_day in df.columns: additional_columns.append(hour_of_day)
         
         # Prepare columns for the processed DataFrame
-        processed_columns = ["case_id", "timestamp"]
+        processed_columns = ["case_id", "event_timestamp"]
         for col in additional_columns:
             processed_columns.extend([col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
         
@@ -319,7 +319,7 @@ class LogsDataProcessor:
             case_df = df[df[case_id_col] == case]
             for i in range(len(case_df)-1):
                 row = [case]
-                row.extend([case_df.iloc[i]["timestamp"]])
+                row.extend([case_df.iloc[i]["time_timestamp"]])
                 for col in additional_columns:
                     original_value = case_df.iloc[i][col]
                     feature_trace = case_df[col].to_list()
@@ -549,6 +549,10 @@ class LogsDataProcessor:
             train_df = processed_prefix_df[processed_prefix_df["case_id"].isin(train_list)].copy()
             test_df = processed_prefix_df[processed_prefix_df["case_id"].isin(test_list)].copy()
             
+            # TODO: del
+            print("train_df")
+            print(train_df)
+            
             # del dfs for memory
             del processed_prefix_df, df_split
         
@@ -580,7 +584,7 @@ class LogsDataProcessor:
                     processed_df = pd.DataFrame(
                         {
                             'case_id': train_or_test_df['case_id'],
-                            'timestamp': train_or_test_df['timestamp'],
+                            'event_timestamp': train_or_test_df['event_timestamp'],
                             feature: feature_values,
                             'Prefix': padded_prefix,
                             'Prefix Length': train_or_test_df[f"{feature}_prefix-length"],
@@ -590,9 +594,9 @@ class LogsDataProcessor:
                     )
                     
                     # Group and sort by case_id and earliest timestamp
-                    processed_df = _group_and_sort(processed_df, "case_id", "timestamp")
+                    processed_df = _group_and_sort(processed_df, "case_id", "event_timestamp")
                     # safe df to csv
-                    processed_df.drop('timestamp', axis=1, inplace=True)
+                    processed_df.drop('event_timestamp', axis=1, inplace=True)
                     processed_df.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                     
                 # Temporal Feature
@@ -624,7 +628,7 @@ class LogsDataProcessor:
                     feature_lst, max_length_prefix, mask = process_timestamp(feature, max_length_prefix, mask)
                     
                     # initialize storage dict
-                    storage_dict = { 'case_id': train_or_test_df['case_id'], 'timestamp': train_or_test_df['timestamp'] }
+                    storage_dict = { 'case_id': train_or_test_df['case_id'], 'event_timestamp': train_or_test_df['event_timestamp'] }
                     # update storage dict with time delta data
                     storage_dict.update( build_storage_df(feature, feature_lst) )
                     
@@ -650,10 +654,10 @@ class LogsDataProcessor:
                     processed_df = pd.DataFrame(storage_dict)
                     
                     # Group and sort by case_id and earliest timestamp
-                    processed_df = _group_and_sort(processed_df, "case_id", "timestamp")
+                    processed_df = _group_and_sort(processed_df, "case_id", "event_timestamp")
                     
                     # safe df to csv
-                    processed_df.drop('timestamp', axis=1, inplace=True)
+                    processed_df.drop('event_timestamp', axis=1, inplace=True)
                     processed_df.to_csv(os.path.join(self._dir_path, f"{feature}##{train_or_test_str}.csv"), index=False)
                     
                     
