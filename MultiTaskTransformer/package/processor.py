@@ -146,11 +146,11 @@ class LogsDataProcessor:
         return df
     
     # helper function that prepares the temporal features
-    def _prepare_temporal_feature(self, df, day_of_week: bool = True, hour_of_day: bool = True):
+    def _prepare_temporal_feature(self, temp_feature_df, day_of_week: bool = True, hour_of_day: bool = True):
         # timestamp at index 1
-        timestamp_column = df.columns[1]
+        timestamp_column = temp_feature_df.columns[1]
         # safe original timestamp column before overwriting it
-        df["timestamp"] = df[timestamp_column]
+        temp_feature_df["timestamp"] = temp_feature_df[timestamp_column]
         
         # Calculate the time passed since the first timestamp for each case_concept_name
         # added offset of +1 to distinguish from padding tokens
@@ -164,30 +164,30 @@ class LogsDataProcessor:
         #     lambda x: ((x - x.min()).dt.total_seconds() / 86400.0 ).astype(float).astype(str)
         # )
         
-        # time_passed (time passed since the first event of the trace)
-        df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
-            lambda x: (x - x.min()).dt.days.astype(str)
+        # Add time_diff_to_current (difference from every event in the trace prefix to the current event)
+        temp_feature_df[f"{timestamp_column}##time_diff_to_current"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
+            lambda x: (x.iloc[-1] - x).dt.days.astype(str)
         )
         
-        # Add time_diff_to_current (difference from every event in the trace prefix to the current event)
-        df[f"{timestamp_column}##time_diff_to_current"] = df.groupby('case_concept_name')[timestamp_column].transform(
-            lambda x: (x.iloc[-1] - x).dt.days.astype(str)
+        # time_passed (time passed since the first event of the trace)
+        temp_feature_df[f"{timestamp_column}##time_passed"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
+            lambda x: (x - x.min()).dt.days.astype(str)
         )
         
         # Add day_of_week
         if day_of_week:
-            df[f"{timestamp_column}##day_of_week"] = df[timestamp_column].dt.weekday.astype(str)
+            temp_feature_df[f"{timestamp_column}##day_of_week"] = temp_feature_df[timestamp_column].dt.weekday.astype(str)
         # Add hour_of_day
         if hour_of_day:
-            df[f"{timestamp_column}##hour_of_day"] = df[timestamp_column].dt.hour.astype(str)
+            temp_feature_df[f"{timestamp_column}##hour_of_day"] = temp_feature_df[timestamp_column].dt.hour.astype(str)
         
         # replace timestamp column with time_passed column
-        df[timestamp_column] = df[f"{timestamp_column}##time_passed"]
-        df.drop(f"{timestamp_column}##time_passed", axis=1, inplace=True)
+        temp_feature_df[timestamp_column] = temp_feature_df[f"{timestamp_column}##time_diff_to_current"]
+        temp_feature_df.drop(f"{timestamp_column}##time_diff_to_current", axis=1, inplace=True)
         # drop case_id column
-        df.drop('case_concept_name', axis=1, inplace=True)
+        temp_feature_df.drop('case_concept_name', axis=1, inplace=True)
         
-        return df
+        return temp_feature_df
     
     # case_id, col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
@@ -290,16 +290,16 @@ class LogsDataProcessor:
             pd.DataFrame: Processed dataframe.
         """
         
-        case_id = "case_concept_name"
+        case_id_col = "case_concept_name"
         additional_columns = [item for sublist in self.additional_columns.values() for item in sublist]
         
         # if exist, append day_of_week and hour_of_day to additional_columns
         if Feature_Type.TIMESTAMP in self.additional_columns:
             time_features = self.additional_columns[Feature_Type.TIMESTAMP]
             for feature in time_features:
-                # append time_diff_to_current to additional_columns
-                time_diff_to_current = f"{feature}##time_diff_to_current"
-                additional_columns.append(time_diff_to_current)
+                # append time_passed to additional_columns
+                time_passed = f"{feature}##time_passed"
+                additional_columns.append(time_passed)
                 
                 day_of_week = f"{feature}##day_of_week"
                 hour_of_day = f"{feature}##hour_of_day"
@@ -313,22 +313,22 @@ class LogsDataProcessor:
         
         
         processed_data = []
-        unique_cases = df[case_id].unique()
+        unique_cases = df[case_id_col].unique()
         
         for case in unique_cases:
-            case_df = df[df[case_id] == case]
+            case_df = df[df[case_id_col] == case]
             for i in range(len(case_df)-1):
                 row = [case]
                 row.extend([case_df.iloc[i]["timestamp"]])
                 for col in additional_columns:
                     original_value = case_df.iloc[i][col]
-                    cat = case_df[col].to_list()
-                    prefix_list = cat[:i + 1]
+                    feature_trace = case_df[col].to_list()
+                    prefix_list = feature_trace[:i + 1]
                     prefix = " ".join(prefix_list)
                     # prefix = " ".join([str(item) for item in prefix_list])
-                    next_cat = cat[i + 1]
-                    last_cat = cat[-1]
-                    row.extend([original_value, prefix, i+1, next_cat, last_cat])
+                    next_feature = feature_trace[i + 1]
+                    last_feature = feature_trace[-1]
+                    row.extend([original_value, prefix, i+1, next_feature, last_feature])
                 processed_data.append(row)
             
         
@@ -427,7 +427,7 @@ class LogsDataProcessor:
         all_cols = ["concept_name"] + [item for sublist in self.additional_columns.values() for item in sublist]
         all_cols = [self.sanitize_filename(col) for col in all_cols]
         
-        # check whick columns have already processed files
+        # check which columns have already processed files
         existing_cols = []
         for feature in all_cols:
             if (os.path.isfile(os.path.join(self._dir_path, f"{feature}##metadata.json"))
@@ -505,7 +505,7 @@ class LogsDataProcessor:
                         # drop un-prepared temp feature
                         df.drop(feature, axis=1, inplace=True)
                         
-                        # append prepared temp feature data to df
+                        # append prepared temp_feature_df to df
                         df = pd.concat([df, prepared_temp_feature_df], axis=1)
             
             # TODO: debugging
@@ -514,7 +514,7 @@ class LogsDataProcessor:
             
             # Sorting by earliest time_timestamp (groupby case_concept_name)
             if self._sorting:
-                df = _group_and_sort(df, "case_concept_name", "timestamp")
+                df = _group_and_sort(df, "case_concept_name", "time_timestamp")
                 train_test_split_point = int(df["case_concept_name"].nunique() * train_test_ratio)
             else:
                 # random train-test split
@@ -628,10 +628,10 @@ class LogsDataProcessor:
                     # update storage dict with time delta data
                     storage_dict.update( build_storage_df(feature, feature_lst) )
                     
-                    # process time_diff_to_current
-                    time_diff_to_current_lst, max_length_prefix, mask = process_timestamp(f"{feature}##time_diff_to_current", max_length_prefix, mask)
+                    # process time_passed
+                    time_passed_lst, max_length_prefix, mask = process_timestamp(f"{feature}##time_passed", max_length_prefix, mask)
                     # update storage dict with additional day_of_week data
-                    storage_dict.update( build_storage_df("time_diff_to_current", time_diff_to_current_lst) )
+                    storage_dict.update( build_storage_df("time_passed", time_passed_lst) )
                     
                     # process additional temporal day_of_week feature
                     if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
