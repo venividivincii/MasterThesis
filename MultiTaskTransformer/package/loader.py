@@ -126,7 +126,7 @@ class LogsDataLoader:
         # calc max_case_length
         if max_case_length:
             if feature_type is Feature_Type.CATEGORICAL: prefix_str = "Prefix"
-            elif feature_type is Feature_Type.TIMESTAMP: prefix_str = f"{feature}##Prefix"
+            elif feature_type is Feature_Type.TIMESTAMP: prefix_str = f"{feature}##Time-Passed Prefix"
             max_case_length = max( len(seq.split()) for seq in df[prefix_str].values )
             return x_token_dict, y_token_dict, max_case_length
         else:

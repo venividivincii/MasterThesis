@@ -267,10 +267,12 @@ class ModelWrapper():
         
         def prepare_temporal_input(feature):
             temporal_inputs = []
-            # Input Layer for temporal feature
-            temporal_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}")
+            # Input Layer for Time-Passed
+            time_passed_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}_Time_Passed")
+            # Input Layer for Time_Diff
+            time_diff_input = layers.Input(shape=(max_case_length,), name=f"input_{feature}_Time_Diff")
             # append temporal feature to temporal inputs
-            temporal_inputs.append(temporal_input)
+            temporal_inputs.extend([time_passed_input, time_diff_input])
 
             # if day_of_week is used as additional temp feature
             if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
