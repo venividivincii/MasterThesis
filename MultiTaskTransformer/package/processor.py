@@ -304,23 +304,24 @@ class LogsDataProcessor:
         additional_columns = [item for sublist in self.additional_columns.values() for item in sublist]
         
         # if exist, append day_of_week and hour_of_day to additional_columns
-        if Feature_Type.TIMESTAMP in self.additional_columns:
-            time_features = self.additional_columns[Feature_Type.TIMESTAMP]
-            for feature in time_features:
-                # append time_passed to additional_columns
-                time_passed = f"{feature}##time_passed"
-                additional_columns.append(time_passed)
+        # if Feature_Type.TIMESTAMP in self.additional_columns:
+        #     time_features = self.additional_columns[Feature_Type.TIMESTAMP]
+        #     for feature in time_features:
+        #         # append time_passed to additional_columns
+        #         time_passed = f"{feature}##time_passed"
+        #         additional_columns.append(time_passed)
                 
-                day_of_week = f"{feature}##day_of_week"
-                hour_of_day = f"{feature}##hour_of_day"
-                if day_of_week in df.columns: additional_columns.append(day_of_week)
-                if hour_of_day in df.columns: additional_columns.append(hour_of_day)
+        #         day_of_week = f"{feature}##day_of_week"
+        #         hour_of_day = f"{feature}##hour_of_day"
+        #         if day_of_week in df.columns: additional_columns.append(day_of_week)
+        #         if hour_of_day in df.columns: additional_columns.append(hour_of_day)
         
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id", "event_timestamp"]
         for col in additional_columns:
             processed_columns.extend([col, f"{col}_prefix", f"{col}_time-passed-prefix", f"{col}_time-diff-to-current-event-prefix",
-                                      f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
+                                      f"{col}_day_of_week_prefix", f"{col}_hour_of_day_prefix", f"{col}_prefix-length",
+                                      f"{col}_next-feature", f"{col}_last-feature"])
         
         
         processed_data = []
@@ -339,8 +340,7 @@ class LogsDataProcessor:
                         
                         # calc time_passed_prefix
                         time_passed_trace = trace_df[f"{col}##time_passed"].to_list()
-                        time_passed_prefix_list = time_passed_trace[:i + 1]
-                        time_passed_prefix = " ".join(time_passed_prefix_list)
+                        time_passed_prefix = " ".join( time_passed_trace[:i + 1] )
                         
                         # Calculate the prefix sum of time differences up to position i (including i)
                         time_diff_to_current_event__prefix_list = ["0"] + time_next_trace[:i][::-1]
@@ -350,16 +350,29 @@ class LogsDataProcessor:
                         next_time = time_next_trace[i]
                         remaining_time = time_remaining_trace[i]
                         
-                        row.extend(["", "", time_passed_prefix, time_diff_to_current_event__prefix, i+1, next_time, remaining_time])
+                        # process additional temporal features, if set
+                        day_of_week = f"{col}##day_of_week"
+                        hour_of_day = f"{col}##hour_of_day"
+                        if day_of_week in df.columns:
+                            day_of_week_trace = trace_df[f"{col}##day_of_week"].to_list()
+                            day_of_week_prefix = " ".join( day_of_week_trace[:i + 1] )
+                        else: day_of_week_prefix = ""
+                            
+                        if hour_of_day in df.columns:
+                            hour_of_day_trace = trace_df[f"{col}##hour_of_day"].to_list()
+                            hour_of_day_prefix = " ".join( hour_of_day_trace[:i + 1] )
+                        else: hour_of_day_prefix = ""
+                        
+                        row.extend(["", "", time_passed_prefix, time_diff_to_current_event__prefix, day_of_week_prefix, hour_of_day_prefix,
+                                    i+1, next_time, remaining_time])
                     else:
                         current_feature_value = trace_df.iloc[i][col]
                         feature_trace = trace_df[col].to_list()
-                        prefix_list = feature_trace[:i + 1]
-                        prefix = " ".join(prefix_list)
+                        prefix = " ".join( feature_trace[:i + 1] )
                         # prefix = " ".join([str(item) for item in prefix_list])
                         next_feature = feature_trace[i + 1]
                         last_feature = feature_trace[-1]
-                        row.extend([current_feature_value, prefix, "", "", i+1, next_feature, last_feature])
+                        row.extend([current_feature_value, prefix, "", "", "", "", i+1, next_feature, last_feature])
                 processed_data.append(row)
             
         
@@ -642,11 +655,29 @@ class LogsDataProcessor:
                         time_passed_prefix = train_or_test_df[f"{col_str}_time-passed-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         time_diff_to_current_event_prefix = train_or_test_df[f"{col_str}_time-diff-to-current-event-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         
-                        # TODO: Pad feature prefix
+                        # TODO: Pad feature prefixes
                         padded_time_passed_prefix, max_length_prefix, mask = self._pad_feature(time_passed_prefix, max_length_prefix, mask)
                         padded_time_diff_to_current_event_prefix, max_length_prefix, mask = self._pad_feature(time_diff_to_current_event_prefix,
                                                                                                               max_length_prefix, mask)
-                        processed_col_lst.extend( [padded_time_passed_prefix, padded_time_diff_to_current_event_prefix] )
+                        # pad DAY_OF_WEEK
+                        if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
+                            # convert series with prefix strings to List[List]
+                            day_of_week_prefix = train_or_test_df[f"{col_str}_day_of_week_prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
+                            (padded_day_of_week_prefix,
+                             max_length_prefix, mask) = self._pad_feature(day_of_week_prefix, max_length_prefix, mask)
+                        else: padded_day_of_week_prefix = None
+                        
+                        # pad HOUR_OF_DAY
+                        if self._temporal_features[Temporal_Feature.HOUR_OF_DAY]:
+                            # convert series with prefix strings to List[List]
+                            hour_of_day_prefix = train_or_test_df[f"{col_str}_hour_of_day_prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
+                            (padded_hour_of_day_prefix,
+                             max_length_prefix, mask) = self._pad_feature(hour_of_day_prefix, max_length_prefix, mask)
+                        else: padded_hour_of_day_prefix = None
+                            
+                        # append to processed columns
+                        processed_col_lst.extend( [padded_time_passed_prefix, padded_time_diff_to_current_event_prefix,
+                                                   padded_day_of_week_prefix, padded_hour_of_day_prefix] )
                         return processed_col_lst, max_length_prefix, mask
                     
                     def build_storage_df(col_str, col_lst):
@@ -664,19 +695,17 @@ class LogsDataProcessor:
                     # initialize storage dict
                     storage_dict = { 'case_id': train_or_test_df['case_id'], 'event_timestamp': train_or_test_df['event_timestamp'] }
                     # update storage dict with time delta data
-                    storage_dict.update( build_storage_df(feature, feature_lst) )
+                    storage_dict.update( build_storage_df(feature, feature_lst[:-2]) )
                     
                     # process additional temporal day_of_week feature
                     if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
-                        day_of_week_lst, max_length_prefix, mask = process_timestamp(f"{feature}##day_of_week", max_length_prefix, mask)
                         # update storage dict with additional day_of_week data
-                        storage_dict.update( build_storage_df("day_of_week", day_of_week_lst) )
+                        storage_dict.update( {f"{feature}##day_of_week_prefix": feature_lst[4]} )
                         
                     # process additional temporal hour_of_day feature
                     if self._temporal_features[Temporal_Feature.HOUR_OF_DAY]:
-                        hour_of_day_lst, max_length_prefix, mask = process_timestamp(f"{feature}##hour_of_day", max_length_prefix, mask)
                         # update storage dict with additional day_of_week data
-                        storage_dict.update( build_storage_df("hour_of_day", hour_of_day_lst) )
+                        storage_dict.update( {f"{feature}##hour_of_day_prefix": feature_lst[5]} )
                         
                     
                     # build df for storage

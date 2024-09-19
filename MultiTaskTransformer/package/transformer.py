@@ -276,11 +276,11 @@ class ModelWrapper():
 
             # if day_of_week is used as additional temp feature
             if temporal_features[Temporal_Feature.DAY_OF_WEEK]:
-                temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.DAY_OF_WEEK.value}")
+                temporal_input_day_of_week = layers.Input(shape=(max_case_length,), name=f"input_{feature}_day_of_week_prefix")
                 temporal_inputs.append(temporal_input_day_of_week)
             # if hour_of_day is used as additional temp feature
             if temporal_features[Temporal_Feature.HOUR_OF_DAY]:
-                temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_{Temporal_Feature.HOUR_OF_DAY.value}")
+                temporal_input_hour_of_day = layers.Input(shape=(max_case_length,), name=f"input_{feature}_hour_of_day_prefix")
                 temporal_inputs.append(temporal_input_hour_of_day)
                 
             return temporal_inputs

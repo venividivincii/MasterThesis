@@ -109,12 +109,12 @@ class LogsDataLoader:
                 
                 # if day_of_week is included
                 if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
-                    day_of_week_str = Temporal_Feature.DAY_OF_WEEK.value
-                    x_token_dict.update({f"input_{feature}_{day_of_week_str}": prepare_prefixes(col_name=f"{day_of_week_str}##Prefix")})
+                    day_of_week_str = "day_of_week_prefix"
+                    x_token_dict.update({f"input_{feature}_{day_of_week_str}": prepare_prefixes(col_name=f"{feature}##{day_of_week_str}")})
                 # if hour_of_day is included
                 if self._temporal_features[Temporal_Feature.HOUR_OF_DAY]:
-                    hour_of_day_str = Temporal_Feature.HOUR_OF_DAY.value
-                    x_token_dict.update({f"input_{feature}_{hour_of_day_str}": prepare_prefixes(col_name=f"{hour_of_day_str}##Prefix")})
+                    hour_of_day_str = "hour_of_day_prefix"
+                    x_token_dict.update({f"input_{feature}_{hour_of_day_str}": prepare_prefixes(col_name=f"{feature}##{hour_of_day_str}")})
                 
             # if feature is a target col
             if target_col == Target.NEXT_FEATURE:
