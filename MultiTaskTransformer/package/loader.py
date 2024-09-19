@@ -51,46 +51,8 @@ class LogsDataLoader:
         X_scaled = np.where(mask, (X - mean) / std, padding_value)
         
         return X_scaled
-
-    # TODO: depreciated --> delete later
-    def _process_additional_features(self, df: pd.DataFrame, fit: bool = True) -> Tuple[np.ndarray, int, int]:
-        categorical_features = []
-        numerical_features = []
-        
-        for column in df.columns:
-            if df[column].dtype == object or df[column].dtype == 'category':
-                if fit:
-                    self.label_encoders[column] = LabelEncoder()
-                    self.label_encoders[column].fit(df[column])
-                encoded_col = self.label_encoders[column].transform(df[column])
-                categorical_features.append(encoded_col)
-            else:
-                if fit:
-                    self.scalers[column] = StandardScaler()
-                    self.scalers[column].fit(df[[column]])
-                scaled_col = self.scalers[column].transform(df[[column]]).flatten()
-                numerical_features.append(scaled_col)
-        
-        if categorical_features:
-            categorical_features = np.array(categorical_features).T
-        else:
-            categorical_features = np.empty((len(df), 0))
-
-        if numerical_features:
-            numerical_features = np.array(numerical_features).T
-        else:
-            numerical_features = np.empty((len(df), 0))
-
-        num_categorical = categorical_features.shape[1]
-        num_numerical = numerical_features.shape[1]
-
-        combined_features = np.concatenate([categorical_features, numerical_features], axis=1)
-
-        return combined_features, num_categorical, num_numerical
     
     
-    
-    # TODO: new method
     def prepare_data( self, feature: str, df: pd.DataFrame, max_case_length=False) -> Tuple[dict, dict, int]:
         def prepare_prefixes(col_name: str):
             # Convert each string of numbers to a list of floats
@@ -129,22 +91,21 @@ class LogsDataLoader:
             # if feature is a input col
             if is_input:
                 x_token_dict.update({ f"input_{feature}": prepare_prefixes(col_name="Prefix") })
-                # x_token_dict.update({ feature: prepare_prefixes(col_name="Prefix") })
                 
             # if feature is a target col
             if target_col == Target.NEXT_FEATURE:
                 y_token_dict.update({ f"output_{feature}": prepare_labels(col_name="Next-Feature") })
-                # y_token_dict.update({ feature: prepare_labels(col_name="Next-Feature") })
             elif target_col == Target.LAST_FEATURE:
                 y_token_dict.update({ f"output_{feature}": prepare_labels(col_name="Last-Feature") })
-                # y_token_dict.update({ feature: prepare_labels(col_name="Last-Feature") })
         
         # if feature is temporal
         elif feature_type is Feature_Type.TIMESTAMP:
             # if feature is a input col
             if is_input:
-                # feature prefix
-                x_token_dict.update({f"input_{feature}": prepare_prefixes(col_name=f"{feature}##Prefix")})
+                # time-passed Prefix
+                x_token_dict.update({f"input_{feature}_Time_Passed": prepare_prefixes(col_name=f"{feature}##Time-Passed Prefix")})
+                # Time-Diff to current event Prefix
+                x_token_dict.update({f"input_{feature}_Time_Diff": prepare_prefixes(col_name=f"{feature}##Time-Diff-to-current-event Prefix")})
                 
                 # if day_of_week is included
                 if self._temporal_features[Temporal_Feature.DAY_OF_WEEK]:
@@ -157,9 +118,9 @@ class LogsDataLoader:
                 
             # if feature is a target col
             if target_col == Target.NEXT_FEATURE:
-                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name=f"{feature}##Next-Feature") })
+                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name=f"{feature}##Next-Time") })
             elif target_col == Target.LAST_FEATURE:
-                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name=f"{feature}##Last-Feature") })
+                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name=f"{feature}##Remaining-Time") })
         
         
         # calc max_case_length
