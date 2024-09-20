@@ -448,6 +448,18 @@ class ModelWrapper():
         # Using MirroredStrategy for distributed training on GPUs
         with strategy.scope():
             if cross_val:
+                # helper function for loading histories from storage
+                def get_histories(val_histories_path, fold_histories_path):
+                    # load histories from other folds, if exist
+                    if os.path.isfile(val_histories_path) and os.path.isfile(fold_histories_path):
+                        with open(val_histories_path, 'rb') as file:
+                            val_histories = pickle.load(file)
+                        with open(fold_histories_path, 'rb') as file:
+                            fold_histories = pickle.load(file)
+                    else:
+                        val_histories, fold_histories = [], []
+                    return val_histories, fold_histories
+                
                 # initialize crossval_savepoints dir
                 crossval_savepoints_dir = os.path.join("datasets", self.dataset_name, "crossval_savepoints", self.job_id)
                 os.makedirs(crossval_savepoints_dir, exist_ok=True)
@@ -456,19 +468,16 @@ class ModelWrapper():
                 val_histories_path = os.path.join(crossval_savepoints_dir, "val_histories.pkl")
                 fold_histories_path = os.path.join(crossval_savepoints_dir, "crossval_savepoints.pkl")
                 
+                print("------------------------------------------------------------------------")
                 print(f"Using {n_splits}-Fold Cross-Validation with Grouping by case_id")
                 group_kfold = GroupKFold(n_splits=n_splits)
                 
-                # load histories from other folds, if exist
-                if os.path.isfile(val_histories_path) and os.path.isfile(fold_histories_path):
-                    with open(val_histories_path, 'rb') as file:
-                        val_histories = pickle.load(file)
-                    with open(fold_histories_path, 'rb') as file:
-                        fold_histories = pickle.load(file)
-                else:
-                    val_histories, fold_histories = [], []
+                # get stored val_histories and fold_histories, if exist
+                val_histories, fold_histories = get_histories(val_histories_path, fold_histories_path)
                     
                 fold = len(val_histories) + 1
+                # storage management
+                del val_histories, fold_histories
 
                 for idx, (train_indices, val_indices) in enumerate( group_kfold.split(self.case_ids, groups=self.case_ids) ):
                     
@@ -496,7 +505,12 @@ class ModelWrapper():
                             initial_lr,
                             target_lr
                         )
+                        # clear gpu memory
+                        tf.keras.backend.clear_session()
                         self.models.append(model)
+                        
+                        # get stored val_histories and fold_histories, if exist
+                        val_histories, fold_histories = get_histories(val_histories_path, fold_histories_path)
 
                         # Extract validation loss from the custom history structure
                         val_loss_history = [epoch['val_loss'] for epoch in history if 'val_loss' in epoch]
@@ -509,6 +523,9 @@ class ModelWrapper():
                         # persist fold_histories
                         with open(fold_histories_path, 'wb') as file:
                             pickle.dump(fold_histories, file)
+                            
+                        # save up space
+                        del val_histories, fold_histories
                         fold += 1
                     else:
                         print(f"Skipping fold {idx+1}: Already processed.")
