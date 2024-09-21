@@ -401,10 +401,10 @@ class ModelWrapper():
 
         x = ModelWrapper.MaskedGlobalAveragePooling1D(self)(x)
         
-        # Fully connected layers
-        x = layers.Dropout(0.1)(x)
-        x = layers.Dense(64, activation="relu")(x)
-        x = layers.Dropout(0.1)(x)
+        # # Fully connected layers
+        # x = layers.Dropout(0.1)(x)
+        # x = layers.Dense(64, activation="relu")(x)
+        # x = layers.Dropout(0.1)(x)
         
         # Output layers for categorical features
         outputs = []
@@ -416,9 +416,17 @@ class ModelWrapper():
                         elif target == Target.LAST_FEATURE: dict_str = "y_last_word_dict"
                         else: raise ValueError("Target type is not known.")
                         output_dim = len(word_dicts[feature][dict_str])
-                        outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x) )
+                        # Fully connected layers
+                        x_cat = layers.Dropout(0.1)(x)
+                        x_cat = layers.Dense(64, activation="relu")(x_cat)
+                        x_cat = layers.Dropout(0.1)(x_cat)
+                        outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x_cat) )
                     if feature_type is Feature_Type.TIMESTAMP:
-                        outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x) )
+                        # Fully connected layers
+                        x_temp = layers.Dropout(0.1)(x)
+                        x_temp = layers.Dense(64, activation="relu")(x_temp)
+                        x_temp = layers.Dropout(0.1)(x_temp)
+                        outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x_temp) )
         
         
         
@@ -476,14 +484,16 @@ class ModelWrapper():
                 val_histories, fold_histories = get_histories(val_histories_path, fold_histories_path)
                     
                 fold = len(val_histories) + 1
-                # storage management
-                del val_histories, fold_histories
 
                 for idx, (train_indices, val_indices) in enumerate( group_kfold.split(self.case_ids, groups=self.case_ids) ):
-                    
+
                     # skip already processed folds, if training was interrupted
                     if (idx+1) == fold:
                         print(f"Training fold {fold}/{n_splits}...")
+
+                        # save space
+                        del val_histories, fold_histories
+                        
                         # Build and compile model for the fold
                         model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
                         
@@ -505,9 +515,11 @@ class ModelWrapper():
                             initial_lr,
                             target_lr
                         )
-                        # clear gpu memory
-                        tf.keras.backend.clear_session()
-                        self.models.append(model)
+                        # save model
+                        crossval_savepoints_dir
+                        model.save_weights( os.path.join(crossval_savepoints_dir, f"model_{idx+1}") )
+                        
+                        # self.models.append(model)
                         
                         # get stored val_histories and fold_histories, if exist
                         val_histories, fold_histories = get_histories(val_histories_path, fold_histories_path)
@@ -523,13 +535,18 @@ class ModelWrapper():
                         # persist fold_histories
                         with open(fold_histories_path, 'wb') as file:
                             pickle.dump(fold_histories, file)
-                            
-                        # save up space
-                        del val_histories, fold_histories
                         fold += 1
                     else:
                         print(f"Skipping fold {idx+1}: Already processed.")
 
+                # load the saved models
+                for idx in range(n_splits):
+                    # initialize model
+                    model = self._build_and_compile_model(train_token_dict_y, model_learning_rate)
+                    # load saved weights into model
+                    model.load_weights( os.path.join(crossval_savepoints_dir, f"model_{idx+1}") )
+                    self.models.append(model)
+                
                 # Calculate average validation performance across all folds
                 avg_val_loss = np.mean([min(history) for history in val_histories])
                 print(f"Average validation loss across {n_splits} folds: {avg_val_loss}")
@@ -541,7 +558,7 @@ class ModelWrapper():
                 #         os.remove(file_path)
                 # os.rmdir(crossval_savepoints_dir)
                 shutil.rmtree(crossval_savepoints_dir)
-                return self.models, fold_histories  # Optionally return full val_histories if needed
+                return self.models, fold_histories
     
             else:
                 print("Using regular train-validation split")
