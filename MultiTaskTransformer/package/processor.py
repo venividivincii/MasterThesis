@@ -567,7 +567,6 @@ class LogsDataProcessor:
                 np.random.shuffle(unique_cases)
                 train_test_split_point = int(len(unique_cases) * train_test_ratio)
                 
-            print(df)
                 
             # train and test case_id lists
             train_list = df["case_concept_name"].unique()[:train_test_split_point]
@@ -592,10 +591,6 @@ class LogsDataProcessor:
             # write results in new dfs
             train_df = processed_prefix_df[processed_prefix_df["case_id"].isin(train_list)].copy()
             test_df = processed_prefix_df[processed_prefix_df["case_id"].isin(test_list)].copy()
-            
-            # TODO: del
-            print("train_df")
-            print(train_df)
             
             # del dfs for memory
             del processed_prefix_df, df_split
