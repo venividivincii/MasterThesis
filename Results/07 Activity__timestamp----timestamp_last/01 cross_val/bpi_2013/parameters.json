@@ -1,0 +1,1 @@
+{"Dataset": "bpi_2013", "Input Columns": ["concept_name", "time_timestamp"], "Target Columns": {"time_timestamp": "last_feature"}, "Model Epochs": 100, "Transformer Layers": 1, "Sorting": false, "Cross Validation": true, "Elapsed Time": 3897.1395621299744}
