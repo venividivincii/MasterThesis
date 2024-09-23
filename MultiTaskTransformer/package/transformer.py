@@ -444,7 +444,7 @@ class ModelWrapper():
                     model_epochs: int,
                     batch_size: int = 12,
                     model_learning_rate: float = 0.001,
-                    n_splits: int = 2,
+                    n_splits: int = 5,
                     warmup_epochs: int = 0,
                     initial_lr: float = 1e-5,
                     target_lr: float = 1e-3):
