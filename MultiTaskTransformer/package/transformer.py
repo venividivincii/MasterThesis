@@ -62,7 +62,7 @@ class ModelWrapper():
                 dataset_name: str,
                 case_ids: pd.DataFrame,
                 input_columns: List[str],
-                target_columns: dict[str, Target],
+                target_columns: dict[tuple, Target],
                 additional_columns: Dict[Feature_Type, List[str]],
                 word_dicts: dict[str, Dict[str, int]],
                 max_case_length: int,
@@ -234,8 +234,7 @@ class ModelWrapper():
         
         
 
-    # TODO: vocab_size to list of vocab_sizesnum_classes_list
-    def get_model(self, input_columns: List[str], target_columns: Dict[str, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
+    def get_model(self, input_columns: List[str], target_columns: Dict[tuple, Target], word_dicts: Dict[str, Dict[str, int]], max_case_length: int,
                   feature_type_dict: Dict[Feature_Type, List[str]], temporal_features: Dict[Temporal_Feature, bool],
                   model_architecture: Model_Architecture,
                   embed_dim=36, num_heads=4, ff_dim=64, num_layers=1):
@@ -408,7 +407,7 @@ class ModelWrapper():
         
         # Output layers for categorical features
         outputs = []
-        for feature, target in target_columns.items():
+        for (feature, suffix), target in target_columns.items():
             for feature_type, feature_lst in feature_type_dict.items():
                 if feature in feature_lst:
                     if feature_type is Feature_Type.CATEGORICAL:
@@ -420,13 +419,13 @@ class ModelWrapper():
                         x_cat = layers.Dropout(0.1)(x)
                         x_cat = layers.Dense(64, activation="relu")(x_cat)
                         x_cat = layers.Dropout(0.1)(x_cat)
-                        outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}")(x_cat) )
+                        outputs.append( layers.Dense(output_dim, activation="softmax", name=f"output_{feature}_{suffix}")(x_cat) )
                     if feature_type is Feature_Type.TIMESTAMP:
                         # Fully connected layers
                         x_temp = layers.Dropout(0.1)(x)
                         x_temp = layers.Dense(64, activation="relu")(x_temp)
                         x_temp = layers.Dropout(0.1)(x_temp)
-                        outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}")(x_temp) )
+                        outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}_{suffix}")(x_temp) )
         
         
         
@@ -445,7 +444,7 @@ class ModelWrapper():
                     model_epochs: int,
                     batch_size: int = 12,
                     model_learning_rate: float = 0.001,
-                    n_splits: int = 5,
+                    n_splits: int = 2,
                     warmup_epochs: int = 0,
                     initial_lr: float = 1e-5,
                     target_lr: float = 1e-3):
@@ -608,7 +607,7 @@ class ModelWrapper():
             print("Using Multi-Task Learning Setup")
             # Define if output is regression task tasks
             is_regression = []
-            for feature in self.target_columns.keys():
+            for (feature, _) in self.target_columns.keys():
                 if feature in self.feature_type_dict[Feature_Type.CATEGORICAL]:
                     is_regression.append(False)  # False for classification tasks
                 elif feature in self.feature_type_dict[Feature_Type.TIMESTAMP]:
@@ -637,7 +636,7 @@ class ModelWrapper():
             model.compile(optimizer=tf.keras.optimizers.Adam(model_learning_rate), loss=losses, metrics=train_metrics)
         else:
             print("Using Single-Task Learning Setup")
-            target_feature = list(self.target_columns.keys())[0]
+            target_feature = [key[0] for key in self.target_columns][0]
             feature_type = next(ftype for ftype, flist in self.additional_columns.items() if target_feature in flist)
             
             if feature_type == Feature_Type.CATEGORICAL:

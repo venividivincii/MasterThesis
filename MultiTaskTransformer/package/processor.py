@@ -13,7 +13,7 @@ from package.constants import Feature_Type, Target, Temporal_Feature
 class LogsDataProcessor:
     def __init__(self, name: str, filepath: str, sorting: bool, columns: List[str],
                  input_columns: List[str],
-                 target_columns: Dict[str, Target],
+                 target_columns: Dict[tuple, Target],
                  temporal_features: Dict[Temporal_Feature, bool],
                  additional_columns: Optional[Dict[Feature_Type, List[str]]] = None,
                  datetime_format: str = "%Y-%m-%d %H:%M:%S.%f",
@@ -34,7 +34,7 @@ class LogsDataProcessor:
         self._org_columns: List[str] = columns
         self.additional_columns: Optional[Dict[Feature_Type, List[str]]] = additional_columns
         self._input_columns: List[str] = input_columns
-        self._target_columns: Dict[str, Target] = target_columns
+        self._target_columns: Dict[tuple, Target] = target_columns
         self._datetime_format: str = datetime_format
         self._temporal_features: Dict[Temporal_Feature, bool] = temporal_features
         self._pool = pool
@@ -80,7 +80,7 @@ class LogsDataProcessor:
         self.additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
                                     feature_lst in self.additional_columns.items()
                                     } if len(self.additional_columns)>0 else {}
-        self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
+        self._target_columns = {(self.sanitize_filename(feature, self._org_columns), suffix): target for (feature, suffix), target in self._target_columns.items()}
         self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
         self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
         
@@ -242,7 +242,7 @@ class LogsDataProcessor:
                     #         break
                     
                     coded_feature = {"type": feature_type.value}
-                    coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))}) # TODO: padding -1
+                    coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))})
                     coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
                     coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
                     coded_features.update({feature: coded_feature})
@@ -405,7 +405,7 @@ class LogsDataProcessor:
         if categorical_feature:
             padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix, padding='post', value=0)
         else:
-            padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix, padding='post', value=-1) # TODO: padding -1
+            padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(prefix, maxlen=max_length_prefix, padding='post', value=-1)
         
         if mask is None:
             # Generate the mask based on the original sequence lengths
@@ -494,7 +494,7 @@ class LogsDataProcessor:
             
             # if timestamp in input or target columns, add it to additional columns
             if ( "time_timestamp" in self._input_columns
-                or "time_timestamp" in self._target_columns):
+                or any(key[0] == "time_timestamp" for key in self._target_columns) ):
                 
                 if ( Feature_Type.TIMESTAMP in self.additional_columns
                 and "time_timestamp" not in self.additional_columns[Feature_Type.TIMESTAMP] ):
@@ -516,7 +516,7 @@ class LogsDataProcessor:
             
             # if timestamp in input or target columns, add it to additional columns
             if ( "time_timestamp" in self._input_columns
-                or "time_timestamp" in self._target_columns):
+                or any(key[0] == "time_timestamp" for key in self._target_columns) ):
                 
                 if ( Feature_Type.TIMESTAMP in self.additional_columns
                 and "time_timestamp" not in self.additional_columns[Feature_Type.TIMESTAMP] ):
@@ -551,10 +551,6 @@ class LogsDataProcessor:
                         
                         # append prepared temp_feature_df to df
                         df = pd.concat([df, prepared_temp_feature_df], axis=1)
-            
-            # TODO: debugging
-            print("df columns")
-            print(df.columns)
             
             # Sorting by earliest time_timestamp (groupby case_concept_name)
             if self._sorting:
@@ -650,7 +646,7 @@ class LogsDataProcessor:
                         time_passed_prefix = train_or_test_df[f"{col_str}_time-passed-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         time_diff_to_current_event_prefix = train_or_test_df[f"{col_str}_time-diff-to-current-event-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         
-                        # TODO: Pad feature prefixes
+                        # Pad feature prefixes
                         padded_time_passed_prefix, max_length_prefix, mask = self._pad_feature(time_passed_prefix, max_length_prefix, mask)
                         padded_time_diff_to_current_event_prefix, max_length_prefix, mask = self._pad_feature(time_diff_to_current_event_prefix,
                                                                                                               max_length_prefix, mask)

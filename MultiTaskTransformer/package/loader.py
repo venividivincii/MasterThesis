@@ -15,7 +15,7 @@ np.random.seed(42)
 
 class LogsDataLoader:
     def __init__(self, name: str, sorting: bool, input_columns: List[str],
-                 target_columns: Dict[str, Target], temporal_features: Dict[Temporal_Feature, bool],
+                 target_columns: Dict[tuple, Target], temporal_features: Dict[Temporal_Feature, bool],
                  dir_path: str = "./datasets"):
         """Provides support for reading and pre-processing examples from processed logs.
 
@@ -32,7 +32,7 @@ class LogsDataLoader:
         # self._dir_path = f"{dir_path}/{name}/processed"
         self.label_encoders = {}
         self.scalers = {}
-        self.target_columns: Dict[str, Target] = target_columns
+        self.target_columns: Dict[tuple, Target] = target_columns
         self.input_columns: List[str] = input_columns
         self._temporal_features: Dict[Temporal_Feature, bool] = temporal_features
         self._feature_type_dict: Dict[ Feature_Type, List[str] ] = None
@@ -75,14 +75,15 @@ class LogsDataLoader:
         # check, if feature is input column
         if feature in self.input_columns: is_input = True
         else: is_input = False
+
         
         # check, if feature is target column
-        target_col = None
-        for target_feature, target in self.target_columns.items():
+        target_cols, suffixes = [], []
+        for (target_feature, suffix), target in self.target_columns.items():
             if feature == target_feature:
-                target_col = target
-                break
-           
+                target_cols.append(target)
+                suffixes.append(suffix)
+        
         # initialize dicts
         x_token_dict, y_token_dict = {}, {}
             
@@ -91,12 +92,13 @@ class LogsDataLoader:
             # if feature is a input col
             if is_input:
                 x_token_dict.update({ f"input_{feature}": prepare_prefixes(col_name="Prefix") })
-                
-            # if feature is a target col
-            if target_col == Target.NEXT_FEATURE:
-                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name="Next-Feature") })
-            elif target_col == Target.LAST_FEATURE:
-                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name="Last-Feature") })
+
+            for target_col, suffix in zip(target_cols, suffixes):
+                # if feature is a target col
+                if target_col == Target.NEXT_FEATURE:
+                    y_token_dict.update({ f"output_{feature}_{suffix}": prepare_labels(col_name="Next-Feature") })
+                elif target_col == Target.LAST_FEATURE:
+                    y_token_dict.update({ f"output_{feature}_{suffix}": prepare_labels(col_name="Last-Feature") })
         
         # if feature is temporal
         elif feature_type is Feature_Type.TIMESTAMP:
@@ -115,13 +117,13 @@ class LogsDataLoader:
                 if self._temporal_features[Temporal_Feature.HOUR_OF_DAY]:
                     hour_of_day_str = "hour_of_day_prefix"
                     x_token_dict.update({f"input_{feature}_{hour_of_day_str}": prepare_prefixes(col_name=f"{feature}##{hour_of_day_str}")})
-                
-            # if feature is a target col
-            if target_col == Target.NEXT_FEATURE:
-                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name=f"{feature}##Next-Time") })
-            elif target_col == Target.LAST_FEATURE:
-                y_token_dict.update({ f"output_{feature}": prepare_labels(col_name=f"{feature}##Remaining-Time") })
-        
+
+            for target_col, suffix in zip(target_cols, suffixes):
+                # if feature is a target col
+                if target_col == Target.NEXT_FEATURE:
+                    y_token_dict.update({ f"output_{feature}_{suffix}": prepare_labels(col_name=f"{feature}##Next-Time") })
+                elif target_col == Target.LAST_FEATURE:
+                    y_token_dict.update({ f"output_{feature}_{suffix}": prepare_labels(col_name=f"{feature}##Remaining-Time") })
         
         # calc max_case_length
         if max_case_length:
@@ -144,7 +146,7 @@ class LogsDataLoader:
         print("Loading data from preprocessed train-test split...")
         
         # all features needed for training and prediction
-        features = list( set(self.input_columns + list(self.target_columns.keys())) )
+        features = list( set(self.input_columns + [key[0] for key in self.target_columns]) )
         print(features)
         
         train_dfs, test_dfs, word_dicts, feature_type_dict = {}, {}, {}, {}
@@ -161,7 +163,6 @@ class LogsDataLoader:
             if feature_type is Feature_Type.CATEGORICAL:
                 # create dict with x_word_dict and y_word_dict for each categorical feature
                 word_dicts.update( {feature:  {key: metadata[key] for key in ["x_word_dict", "y_next_word_dict", "y_last_word_dict"] if key in metadata}} )
-            # TODO:
             
             # create dict with feature types
             if feature_type not in feature_type_dict.keys():
