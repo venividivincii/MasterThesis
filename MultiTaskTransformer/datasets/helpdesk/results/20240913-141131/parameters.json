@@ -1,1 +1,0 @@
-{"Input Columns": ["Resource", "concept_name", "time_timestamp"], "Target Columns": {"concept_name": "next_feature"}, "Model Epochs": 1, "Transformer Layers": 1, "Sorting": true, "Cross Validation": true}

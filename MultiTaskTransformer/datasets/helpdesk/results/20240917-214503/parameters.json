@@ -1,1 +1,0 @@
-{"Input Columns": ["Resource", "concept_name"], "Target Columns": {"concept_name": "next_feature"}, "Model Epochs": 20, "Transformer Layers": 1, "Sorting": false, "Cross Validation": false, "Elapsed Time": 240.7539668083191}

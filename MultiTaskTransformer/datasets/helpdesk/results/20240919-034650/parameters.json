@@ -1,1 +1,0 @@
-{"Input Columns": ["concept_name", "time_timestamp"], "Target Columns": {"time_timestamp": "next_feature"}, "Model Epochs": 10, "Transformer Layers": 1, "Sorting": false, "Cross Validation": false, "Elapsed Time": 404.65570163726807}
