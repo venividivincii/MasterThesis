@@ -1,0 +1,1 @@
+{"Input Columns": ["concept_name"], "Target Columns": {"time_timestamp_last": "last_feature"}, "Model Epochs": 100, "Transformer Layers": 1, "Sorting": false, "Cross Validation": true, "Elapsed Time": 3754.900390625}
