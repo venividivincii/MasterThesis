@@ -29,7 +29,6 @@ class LogsDataLoader:
         else:
             sort_str = "unsorted"
         self._dir_path = os.path.join(dir_path, name, "processed", sort_str)
-        # self._dir_path = f"{dir_path}/{name}/processed"
         self.label_encoders = {}
         self.scalers = {}
         self.target_columns: Dict[tuple, Target] = target_columns
@@ -65,8 +64,6 @@ class LogsDataLoader:
             labels = df[col_name]
             # Convert to NumPy array of type np.float32
             return np.array(labels.tolist(), dtype=np.float32)
-            
-        # feature = df.columns[1]
         
         # determine feature_type of feature
         for feature_type, feature_lst in self._feature_type_dict.items():

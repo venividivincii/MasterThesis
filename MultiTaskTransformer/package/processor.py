@@ -108,13 +108,7 @@ class LogsDataProcessor:
         df = df[self._org_columns + additional_cols]
         
         # sanitize columns
-        # self.additional_columns = {feature_type: [self.sanitize_filename(feature, self._org_columns) for feature in feature_lst] for feature_type,
-        #                             feature_lst in self.additional_columns.items()
-        #                             } if len(self.additional_columns)>0 else {}
-        # self._target_columns = {self.sanitize_filename(feature, self._org_columns): target for feature, target in self._target_columns.items()}
-        # self._input_columns = [self.sanitize_filename(col, self._org_columns) for col in self._input_columns]
         additional_cols = [self.sanitize_filename(col, self._org_columns) for col in additional_cols]
-        # self._org_columns = ["case_concept_name", "concept_name", "time_timestamp"]
         self._sanitize_class_vars()
         
         df.columns = ["case_concept_name", "concept_name", "time_timestamp"] + additional_cols
@@ -150,20 +144,6 @@ class LogsDataProcessor:
         # timestamp at index 1
         timestamp_column = temp_feature_df.columns[1]
         
-        # Calculate the time passed since the first timestamp for each case_concept_name
-        # added offset of +1 to distinguish from padding tokens
-        # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(lambda x: x - x.min())
-        # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
-        #     lambda x: ((x - x.min()).dt.total_seconds().astype(int) + 1).astype(str)
-        # )
-        
-        # days with decimals
-        # df[f"{timestamp_column}##time_passed"] = df.groupby('case_concept_name')[timestamp_column].transform(
-        #     lambda x: ((x - x.min()).dt.total_seconds() / 86400.0 ).astype(float).astype(str)
-        # )
-        
-        #
-        
         # time_remaining (remaining time)
         temp_feature_df[f"{timestamp_column}##time_remaining"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
             lambda x: (x.max() - x).dt.days.astype(str)
@@ -173,11 +153,6 @@ class LogsDataProcessor:
         temp_feature_df[f"{timestamp_column}##time_next"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
             lambda x: x.shift(-1) - x
         ).dt.days.fillna(0).astype(str)
-        
-        # # Add time_diff_to_current (difference from every event in the trace prefix to the current event)
-        # temp_feature_df[f"{timestamp_column}##time_diff_to_current"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
-        #     lambda x: (x.iloc[-1] - x).dt.days.astype(str)
-        # )
         
         # time_passed (time passed since the first event of the trace)
         temp_feature_df[f"{timestamp_column}##time_passed"] = temp_feature_df.groupby('case_concept_name')[timestamp_column].transform(
@@ -191,15 +166,11 @@ class LogsDataProcessor:
         if hour_of_day:
             temp_feature_df[f"{timestamp_column}##hour_of_day"] = temp_feature_df[timestamp_column].dt.hour.astype(str)
         
-        # replace timestamp column with time_passed column
-        # temp_feature_df[timestamp_column] = temp_feature_df[f"{timestamp_column}##time_diff_to_current"]
-        # temp_feature_df.drop(f"{timestamp_column}##time_diff_to_current", axis=1, inplace=True)
-        # drop case_id column
         temp_feature_df.drop('case_concept_name', axis=1, inplace=True)
         
         return temp_feature_df
     
-    # case_id, col, f"{col}_prefix", f"{col}_prefix-length", f"{col}_next-feature", f"{col}_last-feature"])
+
     def _extract_logs_metadata(self, df: pd.DataFrame) -> dict:
         
         # initialize coded columns for categorical features
@@ -213,8 +184,6 @@ class LogsDataProcessor:
                 
                 special_tokens = ["[PAD]", "[UNK]"]
             
-                # columns = [item for item in df.columns.tolist() if item not in ["case:concept:name", "time_timestamp"]]
-                # columns = [item for idx, item in enumerate(df_categorical.columns.tolist()) if idx%5==1]
                 columns = feature_lst.copy()
                 for feature in feature_lst:
                     columns.append(f"{feature}_next-feature")
@@ -235,18 +204,11 @@ class LogsDataProcessor:
                     # classes + special tokens for last-feature target
                     keys_out_last = ["[UNK]"] + list(df_categorical[f"{feature}_last-feature"].unique())
                     
-                    # write feature type in dict
-                    # for feature_type, col_list in self.additional_columns.items():
-                    #     if column in col_list:
-                    #         coded_feature = {"type": feature_type.value}
-                    #         break
-                    
                     coded_feature = {"type": feature_type.value}
                     coded_feature.update({"x_word_dict": dict(zip(keys_in, range(len(keys_in))))})
                     coded_feature.update({"y_next_word_dict": dict(zip(keys_out_next, range(len(keys_out_next))))})
                     coded_feature.update({"y_last_word_dict": dict(zip(keys_out_last, range(len(keys_out_last))))})
                     coded_features.update({feature: coded_feature})
-                    # print(f"Word dictionary for {feature}: {coded_feature}")
                     
                     # Store each feature's metadata in a separate JSON file
                     coded_json = json.dumps(coded_feature)
@@ -303,19 +265,6 @@ class LogsDataProcessor:
         case_id_col = "case_concept_name"
         additional_columns = [item for sublist in self.additional_columns.values() for item in sublist]
         
-        # if exist, append day_of_week and hour_of_day to additional_columns
-        # if Feature_Type.TIMESTAMP in self.additional_columns:
-        #     time_features = self.additional_columns[Feature_Type.TIMESTAMP]
-        #     for feature in time_features:
-        #         # append time_passed to additional_columns
-        #         time_passed = f"{feature}##time_passed"
-        #         additional_columns.append(time_passed)
-                
-        #         day_of_week = f"{feature}##day_of_week"
-        #         hour_of_day = f"{feature}##hour_of_day"
-        #         if day_of_week in df.columns: additional_columns.append(day_of_week)
-        #         if hour_of_day in df.columns: additional_columns.append(hour_of_day)
-        
         # Prepare columns for the processed DataFrame
         processed_columns = ["case_id", "event_timestamp"]
         for col in additional_columns:
@@ -369,7 +318,6 @@ class LogsDataProcessor:
                         current_feature_value = trace_df.iloc[i][col]
                         feature_trace = trace_df[col].to_list()
                         prefix = " ".join( feature_trace[:i + 1] )
-                        # prefix = " ".join([str(item) for item in prefix_list])
                         next_feature = feature_trace[i + 1]
                         last_feature = feature_trace[-1]
                         row.extend([current_feature_value, prefix, "", "", "", "", i+1, next_feature, last_feature])
@@ -410,55 +358,11 @@ class LogsDataProcessor:
         if mask is None:
             # Generate the mask based on the original sequence lengths
             mask = np.array([[1 if i < len(seq) else 0 for i in range(max_length_prefix)] for seq in prefix])
-            # Expand mask dimensions for compatibility with multi-head attention
-            # mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, max_length_prefix)
-            # mask = np.expand_dims(mask, axis=1)  # Shape becomes (batch_size, 1, 1, max_length_prefix)
-        
-        # if mask is None:
-        #     # Generate the mask based on the original sequence lengths
-        #     mask = np.array([[1 if i < len(seq) else 0 for i in range(max_length_prefix)] for seq in prefix])
-        #     # Expand mask dimensions for compatibility with multi-head attention
-        #     mask = np.expand_dims(mask, axis=-1)  # Shape becomes (batch_size, max_length_prefix, 1)
-        #     mask = np.expand_dims(mask, axis=-1)  # Shape becomes (batch_size, max_length_prefix, 1, 1)
 
         # Convert padded sequences to string format (optional, if needed)
         padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
         
         return padded_prefix_str, max_length_prefix, mask
-
-
-    
-    
-    # def _tokenize_and_pad_feature(self, prefixes: pd.DataFrame, feature_values: pd.Series, next_feature: pd.Series,
-    #                               last_feature: pd.Series, x_word_dict: dict, y_next_word_dict: dict, y_last_word_dict: dict,
-    #                               max_length_prefix=None):
-
-    #     if isinstance(prefixes, pd.Series):
-    #         prefixes = prefixes.to_frame()
-
-    #     # if prefixes.shape[1] == 0:
-    #     #     raise ValueError("The 'prefixes' DataFrame must have at least one column.")
-
-    #     if max_length_prefix == None:
-    #         max_length_prefix = max(len(str(seq).split()) for seq in prefixes.iloc[:, 0])
-
-    #     tokenized_prefix = []
-    #     for seq in prefixes.iloc[:, 0]:
-    #         tokenized_seq = [x_word_dict.get(word, x_word_dict["[UNK]"]) for word in str(seq).split()]
-    #         tokenized_prefix.append(tokenized_seq)
-
-    #     # # Ensure feature_values is a single column Series
-    #     # if isinstance(feature_values, pd.DataFrame):
-    #     #     feature_values = feature_values.iloc[:, 0]
-
-    #     tokenized_values = feature_values.apply(lambda x: x_word_dict.get(x, x_word_dict["[UNK]"]))
-    #     tokenized_next = next_feature.apply(lambda y_next: y_next_word_dict.get(y_next, y_next_word_dict["[UNK]"]))
-    #     tokenized_last = last_feature.apply(lambda y_last: y_last_word_dict.get(y_last, y_last_word_dict["[UNK]"]))
-
-    #     padded_prefix = tf.keras.preprocessing.sequence.pad_sequences(tokenized_prefix, maxlen=max_length_prefix)
-    #     padded_prefix_str = [" ".join(map(str, seq)) for seq in padded_prefix]
-
-    #     return tokenized_values, tokenized_next, tokenized_last, padded_prefix_str, max_length_prefix
 
 
     def process_logs(self, train_test_ratio: float = 0.80) -> None:
@@ -570,7 +474,6 @@ class LogsDataProcessor:
             
             # run preprocessing
             print("Preprocessing...")
-            # self._process_next_categorical(df, train_list, test_list)
             
             # make splits for parallel processing
             df_split = np.array_split(df, self._pool)
@@ -580,7 +483,6 @@ class LogsDataProcessor:
             with Pool(processes=self._pool) as pool:
                 processed_prefix_df = pd.concat(pool.imap_unordered(self._process_column_prefixes, df_split))
             
-            # rewrite _extract_logs_metadata()
             print("Extracting log metadata")
             metadata = self._extract_logs_metadata(processed_prefix_df)
             
@@ -591,8 +493,6 @@ class LogsDataProcessor:
             # del dfs for memory
             del processed_prefix_df, df_split
         
-        
-            # train_df.to_csv(os.path.join(self._dir_path, f"{self._preprocessing_id}_train_untokenized.csv"), index=False)
             
             def store_processed_df_to_csv(feature, train_or_test_df: pd.DataFrame, train_or_test_str: str, max_length_prefix=None, mask=None): 
                 
@@ -641,8 +541,8 @@ class LogsDataProcessor:
                         processed_col_lst = []
                         processed_col_lst.append( train_or_test_df[f"{col_str}_next-feature"] )
                         processed_col_lst.append( train_or_test_df[f"{col_str}_last-feature"] )
+                        
                         # convert series with prefix strings to List[List]
-                        # prefix = train_or_test_df[f"{col_str}_prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         time_passed_prefix = train_or_test_df[f"{col_str}_time-passed-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         time_diff_to_current_event_prefix = train_or_test_df[f"{col_str}_time-diff-to-current-event-prefix"].apply(lambda x: list(map(float, x.split()))).tolist()
                         

@@ -179,7 +179,7 @@ class ModelWrapper():
             return inputs + positions  # Add position embeddings to the input tensor
         
         
-    # generates a mask for numerical inputs
+    # generate a mask for numerical inputs
     class NumericalMaskGeneration(layers.Layer):
         def __init__(self, model_wrapper):
             super(ModelWrapper.NumericalMaskGeneration, self).__init__()
@@ -427,8 +427,6 @@ class ModelWrapper():
                         x_temp = layers.Dropout(0.1)(x_temp)
                         outputs.append( layers.Dense(1, activation="linear", name=f"output_{feature}_{suffix}")(x_temp) )
         
-        
-        
         # Model definition
         transformer = Model(inputs=inputs_layers, outputs=outputs, name="next_categorical_transformer")
         
@@ -518,8 +516,6 @@ class ModelWrapper():
                         crossval_savepoints_dir
                         model.save_weights( os.path.join(crossval_savepoints_dir, f"model_{idx+1}") )
                         
-                        # self.models.append(model)
-                        
                         # get stored val_histories and fold_histories, if exist
                         val_histories, fold_histories = get_histories(val_histories_path, fold_histories_path)
 
@@ -551,12 +547,8 @@ class ModelWrapper():
                 print(f"Average validation loss across {n_splits} folds: {avg_val_loss}")
                 
                 # delete all crossval_savepoints
-                # for filename in os.listdir(crossval_savepoints_dir):
-                #     file_path = os.path.join(crossval_savepoints_dir, filename)
-                #     if os.path.isfile(file_path) or os.path.islink(file_path):
-                #         os.remove(file_path)
-                # os.rmdir(crossval_savepoints_dir)
                 shutil.rmtree(crossval_savepoints_dir)
+                
                 return self.models, fold_histories
     
             else:
@@ -668,8 +660,6 @@ class ModelWrapper():
         return train_data_split, val_data_split
 
 
-# train_dataset,
-# val_dataset,
     def _train_single_fold(self,
                         model,
                         train_token_dict_x_split: dict[str, NDArray[np.float32]],
@@ -679,7 +669,7 @@ class ModelWrapper():
                         model_epochs: int,
                         batch_size: int,
                         fold: int = None,
-                        warmup_epochs: int = 5,  # Specify the number of warmup epochs
+                        warmup_epochs: int = 5,
                         initial_lr: float = 1e-5,
                         target_lr: float = 1e-3):
         """
@@ -730,7 +720,6 @@ class ModelWrapper():
                 with open(history_path, 'wb') as file:
                     pickle.dump(self.epoch_history, file)
                 # Save the optimizer's state
-                # optimizer_config = model.optimizer.get_config()
                 optimizer_weights = [tf.keras.backend.get_value(var) for var in model.optimizer.variables()]
                 with open(optimizer_path, 'wb') as f:
                     pickle.dump(optimizer_weights, f)
@@ -816,7 +805,6 @@ class ModelWrapper():
         if os.path.isfile(optimizer_path):
             print("Previous training was interrupted. Initializing optimizer by training for 1 epoch...")
             # Do one dummy step to initialize the optimizer
-            # model.train_on_batch(next(iter(train_dataset)))
             model.fit(
                 x=train_token_dict_x_split,
                 y=train_token_dict_y_split,
@@ -828,11 +816,6 @@ class ModelWrapper():
             
             with open(optimizer_path, 'rb') as f:
                 optimizer_weights = pickle.load(f)
-            # Recreate the optimizer from the config
-            # model.optimizer = Adam.from_config(optimizer_config)
-            # Set the optimizer weights to the model's optimizer
-            # model.optimizer.set_weights(optimizer_weights)
-            # Set the weights back into the optimizer
             # Restore the weights to the optimizer's variables
             for var, weight in zip(model.optimizer.variables(), optimizer_weights):
                 tf.keras.backend.set_value(var, weight)
@@ -853,11 +836,6 @@ class ModelWrapper():
             history = pickle.load(file)
             
         # delete all train_savepoints
-        # for filename in os.listdir(train_savepoints_dir):
-        #     file_path = os.path.join(train_savepoints_dir, filename)
-        #     if os.path.isfile(file_path) or os.path.islink(file_path):
-        #         os.remove(file_path)
-        # os.rmdir(train_savepoints_dir)
         shutil.rmtree(train_savepoints_dir)
         
         return model, history
@@ -867,7 +845,7 @@ class ModelWrapper():
         
 
 def random_train_val_split(case_ids, validation_split):
-    # Get the number of samples (assumed to be the same for all features)
+    # Get the number of samples
     n_samples = case_ids.shape[0]
 
     # Initialize GroupShuffleSplit with desired validation split
@@ -880,7 +858,7 @@ def random_train_val_split(case_ids, validation_split):
 
 
 def sequential_train_val_split(case_ids, validation_split):
-    # Get the number of samples (assumed to be the same for all features)
+    # Get the number of samples
     n_samples = case_ids.shape[0]
     
     # Create a DataFrame to track indices and case_ids
@@ -903,7 +881,7 @@ def sequential_train_val_split(case_ids, validation_split):
 
 
 def k_fold_split(case_ids, n_splits):
-    # Get the number of samples (assumed to be the same for all features)
+    # Get the number of samples
     n_samples = case_ids.shape[0]
 
     # Initialize GroupKFold with the desired number of splits
