@@ -1,0 +1,1 @@
+{"Input Columns": ["concept_name", "org_group"], "Target Columns": {"concept_name_next": "next_feature", "time_timestamp_last": "last_feature", "time_timestamp_next": "next_feature"}, "Model Epochs": 100, "Transformer Layers": 1, "Sorting": false, "Cross Validation": true, "Elapsed Time": 1372.9872670173645}
