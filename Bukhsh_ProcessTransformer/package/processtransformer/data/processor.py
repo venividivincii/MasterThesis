@@ -146,6 +146,7 @@ class LogsDataProcessor:
         unique_cases = df[case_id].unique()
         for _, case in enumerate(unique_cases):
             act = df[df[case_id] == case][event_name].to_list()
+            df[event_time] = df[event_time].astype(str) # TODO: debug update
             time = df[df[case_id] == case][event_time].str[:19].to_list()
             time_passed = 0
             latest_diff = datetime.timedelta()
@@ -189,12 +190,17 @@ class LogsDataProcessor:
         train_remaining_time.to_csv(f"{self._dir_path}/{Task.REMAINING_TIME.value}_train.csv", index = False)
         test_remaining_time.to_csv(f"{self._dir_path}/{Task.REMAINING_TIME.value}_test.csv", index = False)
 
-    def process_logs(self, task, 
+    def process_logs(self, task,
         sort_temporally = False, 
         train_test_ratio = 0.80):
         df = self._load_df(sort_temporally)
         self._extract_logs_metadata(df)
-        train_test_ratio = int(abs(df["case:concept:name"].nunique()*train_test_ratio))
+        # TODO: added shuffling
+        np.random.seed(42)
+        unique_cases = df["case:concept:name"].unique()
+        # np.random.shuffle(unique_cases)
+        ###
+        train_test_ratio = int(len(unique_cases) * train_test_ratio)
         train_list = df["case:concept:name"].unique()[:train_test_ratio]
         test_list = df["case:concept:name"].unique()[train_test_ratio:]
         if task == Task.NEXT_ACTIVITY:
